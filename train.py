@@ -35,6 +35,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     start_datetime = datetime.now().timestamp()
     gaussians = GaussianModel(dataset.sh_degree)
     scene = Scene(dataset, gaussians)
+
+    if opt.start_ply:
+        gaussians.load_ply(opt.start_ply)
+        first_iter = opt.start_iter
+        gaussians.max_radii2D = torch.zeros_like(gaussians._xyz[:,0])
+
     gaussians.training_setup(opt)
     if os.path.exists(scene.model_path + "/deadline-chkpnt.pth"):
         print("Deadline checkpoint detected, start from it", scene.model_path + "/deadline-chkpnt.pth")
@@ -214,7 +220,7 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 30_000])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[1000] + [3000 * i for i in range(40)])
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 30_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
