@@ -1,0 +1,31 @@
+include:
+  - project: "to-be-continuous/docker" # see https://to-be-continuous.pages.gitlab.tech.orange/doc/ref/docker/
+    ref: "5.3.0"
+    file: "templates/gitlab-ci-docker.yml"
+
+variables:
+  DOCKER_FILE: "$CI_PROJECT_DIR/ci/docker/Dockerfile"
+  DOCKER_CONTEXT_PATH: "$CI_PROJECT_DIR/"
+  DOCKER_HADOLINT_DISABLED: "true"
+  DOCKER_HEALTHCHECK_DISABLED: "true"
+  DOCKER_TRIVY_DISABLED: "true"
+  DOCKER_SBOM_DISABLED: "true"
+  DOCKER_RELEASE_IMAGE: "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME"
+  DOCKER_SNAPSHOT_IMAGE: "$CI_REGISTRY_IMAGE/snapshot:$CI_COMMIT_REF_SLUG"
+  DOCKER_REGISTRY_MIRROR: "dockerproxy.repos.tech.orange"
+  PUBLISH_ON_PROD: "true"
+  PROD_REF: '/^(orange-master|docker.*)$/' # publish orange-master, but also docker* branches (for tests)
+  DOCKER_PROD_PUBLISH_STRATEGY: "auto"
+  DOCKER_REFERENCE_IMAGE: "$CI_REGISTRY_IMAGE:orange-master"
+  GIT_SUBMODULE_STRATEGY: recursive # See https://docs.gitlab.com/ee/ci/git_submodules.html#use-git-submodules-in-cicd-jobs$
+  GIT_SUBMODULE_DEPTH: 1
+
+# Jobs that build an publish the v3d-tools docker image are implictly defined
+# by the to-be-continuous template
+# As resulting docker image is pretty large (more than 8GB), standard runner does not have enough ram to
+# compress the docker image. Let's use a graas-dind runner which has 32GB memory (see https://doc.diod.tech.orange/graas/how_to_use/runner_types/docker.fr/)
+docker-kaniko-build:
+  tags:
+   - graas-dind
+  rules:
+   - if: $CI_COMMIT_TAG
