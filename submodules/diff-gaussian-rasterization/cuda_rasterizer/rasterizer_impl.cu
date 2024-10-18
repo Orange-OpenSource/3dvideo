@@ -243,7 +243,7 @@ int CudaRasterizer::Rasterizer::forward(
 	char* img_chunkptr = imageBuffer(img_chunk_size);
 	ImageState imgState = ImageState::fromChunk(img_chunkptr, width * height);
 
-	if (NUM_CHANNELS != 3 && colors_precomp == nullptr)
+	if (NB_CHANNELS != 3 && colors_precomp == nullptr)
 	{
 		throw std::runtime_error("For non-RGB, provide precomputed Gaussian colors!");
 	}

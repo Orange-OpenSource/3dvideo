@@ -420,7 +420,7 @@ void FORWARD::render(
 	float* out_color,
 	float* debugBuffer)
 {
-	renderCUDA<NUM_CHANNELS> << <grid, block >> > (
+	renderCUDA<NB_CHANNELS> << <grid, block >> > (
 		ranges,
 		point_list,
 		W, H,
@@ -460,7 +460,7 @@ void FORWARD::preprocess(int P, int D, int M,
 	float* zspan,
 	bool prefiltered)
 {
-	preprocessCUDA<NUM_CHANNELS> << <(P + 255) / 256, 256 >> > (
+	preprocessCUDA<NB_CHANNELS> << <(P + 255) / 256, 256 >> > (
 		P, D, M,
 		means3D,
 		scales,

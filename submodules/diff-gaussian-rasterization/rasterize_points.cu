@@ -65,7 +65,7 @@ RasterizeGaussiansCUDA(
   auto int_opts = means3D.options().dtype(torch::kInt32);
   auto float_opts = means3D.options().dtype(torch::kFloat32);
 
-  torch::Tensor out_color = torch::full({NUM_CHANNELS, H, W}, 0.0, float_opts);
+  torch::Tensor out_color = torch::full({NB_CHANNELS, H, W}, 0.0, float_opts);
   torch::Tensor radii = torch::full({P}, 0, means3D.options().dtype(torch::kInt32));
   torch::Tensor debugBuffer = torch::full({2, H, W}, 0.0, float_opts);
 
@@ -153,7 +153,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 
   torch::Tensor dL_dmeans3D = torch::zeros({P, 3}, means3D.options());
   torch::Tensor dL_dmeans2D = torch::zeros({P, 3}, means3D.options());
-  torch::Tensor dL_dcolors = torch::zeros({P, NUM_CHANNELS}, means3D.options());
+  torch::Tensor dL_dcolors = torch::zeros({P, NB_CHANNELS}, means3D.options());
   torch::Tensor dL_dconic = torch::zeros({P, 2, 2}, means3D.options());
   torch::Tensor dL_dopacity = torch::zeros({P, 1}, means3D.options());
   torch::Tensor dL_dcov3D = torch::zeros({P, 6}, means3D.options());

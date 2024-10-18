@@ -595,7 +595,7 @@ void BACKWARD::preprocess(
 	// Propagate gradients for remaining steps: finish 3D mean gradients,
 	// propagate color gradients to SH (if desireD), propagate 3D covariance
 	// matrix gradients to scale and rotation.
-	preprocessCUDA<NUM_CHANNELS> << < (P + 255) / 256, 256 >> > (
+	preprocessCUDA<NB_CHANNELS> << < (P + 255) / 256, 256 >> > (
 		P, D, M,
 		(float3*)means3D,
 		radii,
@@ -632,7 +632,7 @@ void BACKWARD::render(
 	float* dL_dcolors,
 	float* debugBuffer)
 {
-	renderCUDA<NUM_CHANNELS> << <grid, block >> >(
+	renderCUDA<NB_CHANNELS> << <grid, block >> >(
 		ranges,
 		point_list,
 		W, H,
