@@ -30,6 +30,8 @@ namespace cg = cooperative_groups;
 #include "forward.h"
 #include "backward.h"
 
+using namespace CudaRasterizer;
+
 // Helper function to find the next-highest bit of the MSB
 // on the CPU.
 uint32_t getHigherMsb(uint32_t n)
@@ -71,6 +73,7 @@ __global__ void duplicateWithKeys(
 	int P,
 	const float2* points_xy,
 	const float* depths,
+	const float* zspan,
 	const uint32_t* offsets,
 	uint64_t* gaussian_keys_unsorted,
 	uint32_t* gaussian_values_unsorted,
@@ -165,6 +168,7 @@ CudaRasterizer::GeometryState CudaRasterizer::GeometryState::fromChunk(char*& ch
 	cub::DeviceScan::InclusiveSum(nullptr, geom.scan_size, geom.tiles_touched, geom.tiles_touched, P);
 	obtain(chunk, geom.scanning_space, geom.scan_size, 128);
 	obtain(chunk, geom.point_offsets, P, 128);
+	obtain(chunk, geom.zspan, P, 128);
 	return geom;
 }
 
@@ -268,6 +272,7 @@ int CudaRasterizer::Rasterizer::forward(
 		geomState.conic_opacity,
 		tile_grid,
 		geomState.tiles_touched,
+		geomState.zspan,
 		prefiltered
 	), debug)
 
@@ -289,6 +294,7 @@ int CudaRasterizer::Rasterizer::forward(
 		P,
 		geomState.means2D,
 		geomState.depths,
+		geomState.zspan,
 		geomState.point_offsets,
 		binningState.point_list_keys_unsorted,
 		binningState.point_list_unsorted,

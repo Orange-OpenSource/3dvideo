@@ -15,6 +15,35 @@
 #include <cooperative_groups/reduce.h>
 namespace cg = cooperative_groups;
 
+__device__ void computeZspan(const glm::vec3 scale, const glm::vec4 rot, const float* viewmatrix, float& zspan)
+{
+	// Create scaling matrix
+	glm::mat3 S = glm::mat3(1.0f);
+	S[0][0] = scale.x;
+	S[1][1] = scale.y;
+	S[2][2] = scale.z;
+
+	// Normalize quaternion to get valid rotation
+	glm::vec4 q = rot;// / glm::length(rot);
+	float r = q.x;
+	float x = q.y;
+	float y = q.z;
+	float z = q.w;
+
+	// Compute rotation matrix from quaternion
+	float3 i{1.f - 2.f * (y * y + z * z), 2.f * (x * y + r * z), 2.f * (x * z - r * y)};
+	float3 j{2.f * (x * y - r * z), 1.f - 2.f * (x * x + z * z), 2.f * (y * z + r * x)};
+	float3 k{2.f * (x * z + r * y), 2.f * (y * z - r * x),1.f - 2.f * (x * x + y * y)};
+
+	i = transformVec4x3(i, viewmatrix);
+	j = transformVec4x3(j, viewmatrix);
+	k = transformVec4x3(k, viewmatrix);
+
+	// zspan = sigma of marginal proba along z
+	float GAUSS_APPROX_CONST = 1.8f; // value given by Stephane P. so that the accum of two door fit the accum of two gaussians. TBC
+	zspan = sqrtf(powf(i.z * scale.x, 2.f) + powf(j.z * scale.y, 2.f) + powf(k.z * scale.z, 2.f)) * GAUSS_APPROX_CONST;
+}
+
 // Forward method for converting the input spherical harmonics
 // coefficients of each Gaussian to a simple RGB color.
 __device__ glm::vec3 computeColorFromSH(int idx, int deg, int max_coeffs, const glm::vec3* means, glm::vec3 campos, const float* shs)
@@ -171,6 +200,7 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	float4* conic_opacity,
 	const dim3 grid,
 	uint32_t* tiles_touched,
+	float* zspan,
 	bool prefiltered)
 {
 	auto idx = cg::this_grid().thread_rank();
@@ -247,6 +277,7 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	// Inverse 2D covariance and opacity neatly pack into one float4
 	conic_opacity[idx] = { conic.x, conic.y, conic.z, opacities[idx] };
 	tiles_touched[idx] = (rect_max.y - rect_min.y) * (rect_max.x - rect_min.x);
+	computeZspan(scales[idx], rotations[idx], viewmatrix, zspan[idx]);
 }
 
 // Main rasterization method. Collaboratively works on one tile per
@@ -426,6 +457,7 @@ void FORWARD::preprocess(int P, int D, int M,
 	float4* conic_opacity,
 	const dim3 grid,
 	uint32_t* tiles_touched,
+	float* zspan,
 	bool prefiltered)
 {
 	preprocessCUDA<NUM_CHANNELS> << <(P + 255) / 256, 256 >> > (
@@ -452,6 +484,7 @@ void FORWARD::preprocess(int P, int D, int M,
 		conic_opacity,
 		grid,
 		tiles_touched,
+		zspan,
 		prefiltered
 		);
 }
