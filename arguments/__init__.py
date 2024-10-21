@@ -91,6 +91,8 @@ class OptimizationParams(ParamGroup):
         self.random_background = False
         self.start_ply = ""
         self.start_iter = 0
+        self.densify_max = 10_000_000
+        self.densify_percent = 50
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):

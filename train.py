@@ -33,7 +33,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset, opt)
     start_datetime = datetime.now().timestamp()
-    gaussians = GaussianModel(dataset.sh_degree, dataset.z0)
+    gaussians = GaussianModel(dataset.sh_degree, dataset.z0, opt.densify_max, opt.densify_percent)
     scene = Scene(dataset, gaussians)
 
     if opt.start_ply:

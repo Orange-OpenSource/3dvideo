@@ -41,7 +41,7 @@ class GaussianModel:
         self.rotation_activation = torch.nn.functional.normalize
 
 
-    def __init__(self, sh_degree : int, z0 : bool = False):
+    def __init__(self, sh_degree : int, z0 : bool = False, densify_max : int = 1000000, densify_percent : float = 10.):
         self.active_sh_degree = 0
         self.max_sh_degree = sh_degree  
         self._xyz = torch.empty(0)
@@ -58,6 +58,8 @@ class GaussianModel:
         self.spatial_lr_scale = 0
         self.setup_functions()
         self.z0 = z0
+        self.densify_max = densify_max
+        self.densify_percent = densify_percent
 
     def capture(self):
         return (
@@ -359,6 +361,13 @@ class GaussianModel:
         selected_pts_mask = torch.logical_and(selected_pts_mask,
                                               torch.max(self.get_scaling, dim=1).values > self.percent_dense*scene_extent)
 
+        max_new = max(0, int(abs(self.densify_max - self._xyz.shape[0]) * self.densify_percent // 100))
+        n = selected_pts_mask.sum()
+        if n > max_new:
+            subsel = torch.zeros((n), device=grads.device, dtype=bool)
+            subsel[torch.randperm(n, device=grads.device)[:max_new]] = True
+            selected_pts_mask[selected_pts_mask.detach().clone()] = subsel
+
         stds = self.get_scaling[selected_pts_mask].repeat(N,1)
         means =torch.zeros((stds.size(0), 3),device="cuda")
         samples = torch.normal(mean=means, std=stds)
@@ -381,6 +390,13 @@ class GaussianModel:
         selected_pts_mask = torch.logical_and(selected_pts_mask,
                                               torch.max(self.get_scaling, dim=1).values <= self.percent_dense*scene_extent)
         
+        max_new = max(0, int(abs(self.densify_max - self._xyz.shape[0]) * self.densify_percent // 100))
+        n = selected_pts_mask.sum()
+        if n > max_new:
+            subsel = torch.zeros((n), device=grads.device, dtype=bool)
+            subsel[torch.randperm(n, device=grads.device)[:max_new]] = True
+            selected_pts_mask[selected_pts_mask.detach().clone()] = subsel
+
         new_xyz = self._xyz[selected_pts_mask]
         new_features_dc = self._features_dc[selected_pts_mask]
         new_features_rest = self._features_rest[selected_pts_mask]
