@@ -23,16 +23,28 @@ from gaussian_renderer import GaussianModel
 
 def render_set(model_path, name, iteration, views, gaussians, pipeline, background):
     render_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders")
+    debug_path = os.path.join(model_path, name, "ours_{}".format(iteration), "debug")
     gts_path = os.path.join(model_path, name, "ours_{}".format(iteration), "gt")
 
     makedirs(render_path, exist_ok=True)
     makedirs(gts_path, exist_ok=True)
+    makedirs(debug_path, exist_ok=True)
 
     for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
-        rendering = render(view, gaussians, pipeline, background)["render"]
+        rendering_dict = render(view, gaussians, pipeline, background)
+        rendering = rendering_dict["render"]
+        debugBuffer = rendering_dict["debugBuffer"]
         gt = view.original_image[0:3, :, :]
         torchvision.utils.save_image(rendering, os.path.join(render_path, '{0:05d}'.format(idx) + ".png"))
         torchvision.utils.save_image(gt, os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
+        n_contribs = (debugBuffer[0]/1000).clamp(0.,1.)
+        debugImg = torch.stack([n_contribs * (n_contribs == 1.0), n_contribs * (n_contribs < 0.1), n_contribs * (n_contribs < 1.0) * (n_contribs > 0.1)])
+        torchvision.utils.save_image(debugImg, os.path.join(debug_path, '{0:05d}'.format(idx) + ".png"))
+        if torch.all(background == 0):
+            rgb = rendering
+            alpha = 1. - debugBuffer[1:2]
+            rgba = torch.cat([rgb,alpha], dim=0)
+            torchvision.utils.save_image(rgba, os.path.join(debug_path, 'rgba{0:05d}.png'.format(idx)))
 
 def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool):
     with torch.no_grad():

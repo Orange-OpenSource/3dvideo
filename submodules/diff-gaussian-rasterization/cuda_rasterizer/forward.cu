@@ -270,7 +270,8 @@ renderCUDA(
 	float* __restrict__ final_T,
 	uint32_t* __restrict__ n_contrib,
 	const float* __restrict__ bg_color,
-	float* __restrict__ out_color)
+	float* __restrict__ out_color,
+	float* __restrict__ debugBuffer)
 {
 	// Identify current tile and associated min/max pixel range.
 	auto block = cg::this_thread_block();
@@ -300,6 +301,7 @@ renderCUDA(
 	float T = 1.0f;
 	uint32_t contributor = 0;
 	uint32_t last_contributor = 0;
+	uint32_t nb_contrib = 0;
 	float C[CHANNELS] = { 0 };
 
 	// Iterate over batches until all done or range is complete
@@ -353,7 +355,8 @@ renderCUDA(
 			// Eq. (3) from 3D Gaussian splatting paper.
 			for (int ch = 0; ch < CHANNELS; ch++)
 				C[ch] += features[collected_id[j] * CHANNELS + ch] * alpha * T;
-
+			
+			nb_contrib++;
 			T = test_T;
 
 			// Keep track of last range entry to update this
@@ -370,6 +373,11 @@ renderCUDA(
 		n_contrib[pix_id] = last_contributor;
 		for (int ch = 0; ch < CHANNELS; ch++)
 			out_color[ch * H * W + pix_id] = C[ch] + T * bg_color[ch];
+		if (debugBuffer != nullptr)
+		{
+			debugBuffer[0 * H * W + pix_id] = nb_contrib;
+			debugBuffer[1 * H * W + pix_id] = T;
+		}
 	}
 }
 
@@ -384,7 +392,8 @@ void FORWARD::render(
 	float* final_T,
 	uint32_t* n_contrib,
 	const float* bg_color,
-	float* out_color)
+	float* out_color,
+	float* debugBuffer)
 {
 	renderCUDA<NUM_CHANNELS> << <grid, block >> > (
 		ranges,
@@ -396,7 +405,8 @@ void FORWARD::render(
 		final_T,
 		n_contrib,
 		bg_color,
-		out_color);
+		out_color,
+		debugBuffer);
 }
 
 void FORWARD::preprocess(int P, int D, int M,
