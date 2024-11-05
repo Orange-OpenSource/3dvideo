@@ -31,7 +31,7 @@ except ImportError:
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
     first_iter = 0
-    tb_writer = prepare_output_and_logger(dataset)
+    tb_writer = prepare_output_and_logger(dataset, opt)
     start_datetime = datetime.now().timestamp()
     gaussians = GaussianModel(dataset.sh_degree)
     scene = Scene(dataset, gaussians)
@@ -151,24 +151,26 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     if os.path.exists(scene.model_path + "/deadline-chkpnt.pth"):
         os.remove(scene.model_path + "/deadline-chkpnt.pth")
 
-def prepare_output_and_logger(args):    
-    if not args.model_path:
+def prepare_output_and_logger(dataset_args, opt_args):
+    if not dataset_args.model_path:
         if os.getenv('OAR_JOB_ID'):
             unique_str=os.getenv('OAR_JOB_ID')
         else:
             unique_str = str(uuid.uuid4())
-        args.model_path = os.path.join("./output/", unique_str[0:10])
+        dataset_args.model_path = os.path.join("./output/", unique_str[0:10])
         
     # Set up output folder
-    print("Output folder: {}".format(args.model_path))
-    os.makedirs(args.model_path, exist_ok = True)
-    with open(os.path.join(args.model_path, "cfg_args"), 'w') as cfg_log_f:
-        cfg_log_f.write(str(Namespace(**vars(args))))
+    print("Output folder: {}".format(dataset_args.model_path))
+    os.makedirs(dataset_args.model_path, exist_ok = True)
+    with open(os.path.join(dataset_args.model_path, "cfg_args"), 'w') as cfg_log_f:
+        cfg_log_f.write(str(Namespace(**vars(dataset_args))))
+    with open(os.path.join(dataset_args.model_path, "opt_args"), 'w') as cfg_log_f:
+        cfg_log_f.write(str(Namespace(**vars(opt_args))))
 
     # Create Tensorboard writer
     tb_writer = None
     if TENSORBOARD_FOUND:
-        tb_writer = SummaryWriter(args.model_path)
+        tb_writer = SummaryWriter(dataset_args.model_path)
     else:
         print("Tensorboard not available: not logging progress")
     return tb_writer
