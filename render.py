@@ -34,7 +34,7 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
         rendering_dict = render(view, gaussians, pipeline, background)
         rendering = rendering_dict["render"]
         debugBuffer = rendering_dict["debugBuffer"]
-        gt = view.original_image[0:3, :, :]
+        gt = view.original_image(background)[0:3, :, :]
         torchvision.utils.save_image(rendering, os.path.join(render_path, '{0:05d}'.format(idx) + ".png"))
         torchvision.utils.save_image(gt, os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
         n_contribs = (debugBuffer[0]/1000).clamp(0.,1.)
