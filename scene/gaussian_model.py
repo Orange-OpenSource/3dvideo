@@ -30,18 +30,24 @@ class GaussianModel:
             symm = strip_symmetric(actual_covariance)
             return symm
         
+        def op_activ(f):
+            return self.max_opacity * torch.sigmoid(f)
+
+        def op_deactiv(o):
+            return inverse_sigmoid(o.clamp(1.e-6, self.max_opacity - 1.e-6) / self.max_opacity)
+
         self.scaling_activation = torch.exp
         self.scaling_inverse_activation = torch.log
 
         self.covariance_activation = build_covariance_from_scaling_rotation
 
-        self.opacity_activation = torch.sigmoid
-        self.inverse_opacity_activation = inverse_sigmoid
+        self.opacity_activation = op_activ
+        self.inverse_opacity_activation = op_deactiv
 
         self.rotation_activation = torch.nn.functional.normalize
 
 
-    def __init__(self, sh_degree : int, z0 : bool = False, densify_max : int = 1000000, densify_percent : float = 10.):
+    def __init__(self, sh_degree : int, z0 : bool = False, densify_max : int = 1000000, densify_percent : float = 10., max_opacity = 1.0):
         self.active_sh_degree = 0
         self.max_sh_degree = sh_degree  
         self._xyz = torch.empty(0)
@@ -60,6 +66,7 @@ class GaussianModel:
         self.z0 = z0
         self.densify_max = densify_max
         self.densify_percent = densify_percent
+        self.max_opacity = max_opacity
 
     def capture(self):
         return (
@@ -142,7 +149,7 @@ class GaussianModel:
         rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
         rots[:, 0] = 1
 
-        opacities = inverse_sigmoid(0.1 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
+        opacities = self.inverse_opacity_activation(0.01 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
 
         self._xyz = nn.Parameter(fused_point_cloud.requires_grad_(True))
         self._features_dc = nn.Parameter(features[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True))
@@ -214,7 +221,7 @@ class GaussianModel:
         PlyData([el]).write(path)
 
     def reset_opacity(self):
-        opacities_new = inverse_sigmoid(torch.min(self.get_opacity, torch.ones_like(self.get_opacity)*0.01))
+        opacities_new = self.inverse_opacity_activation(torch.min(self.get_opacity, torch.ones_like(self.get_opacity)*0.02*self.max_opacity))
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
 

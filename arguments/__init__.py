@@ -55,6 +55,7 @@ class ModelParams(ParamGroup):
         self.data_device = "cuda"
         self.eval = False
         self.z0 = False
+        self.max_opacity = 1.0
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):
