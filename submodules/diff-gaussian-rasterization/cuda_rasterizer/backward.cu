@@ -17,7 +17,7 @@ namespace cg = cooperative_groups;
 
 // Backward pass for conversion of spherical harmonics to RGB for
 // each Gaussian.
-__device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const glm::vec3* means, glm::vec3 campos, const float* shs, const bool* clamped, const glm::vec3* dL_dcolor, glm::vec3* dL_dmeans, glm::vec3* dL_dshs)
+__device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const glm::vec3* means, glm::vec3 campos, const float* shs, const glm::vec3* dL_dcolor, glm::vec3* dL_dmeans, glm::vec3* dL_dshs)
 {
 	// Compute intermediate values, as it is done during forward
 	glm::vec3 pos = means[idx];
@@ -26,12 +26,7 @@ __device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const glm::
 
 	glm::vec3* sh = ((glm::vec3*)shs) + idx * max_coeffs;
 
-	// Use PyTorch rule for clamping: if clamping was applied,
-	// gradient becomes 0.
 	glm::vec3 dL_dRGB = dL_dcolor[idx];
-	dL_dRGB.x *= clamped[3 * idx + 0] ? 0 : 1;
-	dL_dRGB.y *= clamped[3 * idx + 1] ? 0 : 1;
-	dL_dRGB.z *= clamped[3 * idx + 2] ? 0 : 1;
 
 	glm::vec3 dRGBdx(0, 0, 0);
 	glm::vec3 dRGBdy(0, 0, 0);
@@ -349,7 +344,6 @@ __global__ void preprocessCUDA(
 	const float3* means,
 	const int* radii,
 	const float* shs,
-	const bool* clamped,
 	const glm::vec3* scales,
 	const glm::vec4* rotations,
 	const float scale_modifier,
@@ -388,7 +382,7 @@ __global__ void preprocessCUDA(
 
 	// Compute gradient updates due to computing colors from SHs
 	if (shs)
-		computeColorFromSH(idx, D, M, (glm::vec3*)means, *campos, shs, clamped, (glm::vec3*)dL_dcolor, (glm::vec3*)dL_dmeans, (glm::vec3*)dL_dsh);
+		computeColorFromSH(idx, D, M, (glm::vec3*)means, *campos, shs, (glm::vec3*)dL_dcolor, (glm::vec3*)dL_dmeans, (glm::vec3*)dL_dsh);
 
 	// Compute gradient updates due to computing covariance from scale/rotation
 	if (scales)
@@ -562,7 +556,6 @@ void BACKWARD::preprocess(
 	const float3* means3D,
 	const int* radii,
 	const float* shs,
-	const bool* clamped,
 	const glm::vec3* scales,
 	const glm::vec4* rotations,
 	const float scale_modifier,
@@ -607,7 +600,6 @@ void BACKWARD::preprocess(
 		(float3*)means3D,
 		radii,
 		shs,
-		clamped,
 		(glm::vec3*)scales,
 		(glm::vec4*)rotations,
 		scale_modifier,

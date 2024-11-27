@@ -43,7 +43,6 @@ namespace BACKWARD
 		const float3* means,
 		const int* radii,
 		const float* shs,
-		const bool* clamped,
 		const glm::vec3* scales,
 		const glm::vec4* rotations,
 		const float scale_modifier,

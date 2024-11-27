@@ -28,7 +28,6 @@ namespace FORWARD
 		const glm::vec4* rotations,
 		const float* opacities,
 		const float* shs,
-		bool* clamped,
 		const float* cov3D_precomp,
 		const float* colors_precomp,
 		const float* viewmatrix,

@@ -17,7 +17,7 @@ namespace cg = cooperative_groups;
 
 // Forward method for converting the input spherical harmonics
 // coefficients of each Gaussian to a simple RGB color.
-__device__ glm::vec3 computeColorFromSH(int idx, int deg, int max_coeffs, const glm::vec3* means, glm::vec3 campos, const float* shs, bool* clamped)
+__device__ glm::vec3 computeColorFromSH(int idx, int deg, int max_coeffs, const glm::vec3* means, glm::vec3 campos, const float* shs)
 {
 	// The implementation is loosely based on code for 
 	// "Differentiable Point-Based Radiance Fields for 
@@ -62,12 +62,7 @@ __device__ glm::vec3 computeColorFromSH(int idx, int deg, int max_coeffs, const 
 	}
 	result += 0.5f;
 
-	// RGB colors are clamped to positive values. If values are
-	// clamped, we need to keep track of this for the backward pass.
-	clamped[3 * idx + 0] = (result.x < 0);
-	clamped[3 * idx + 1] = (result.y < 0);
-	clamped[3 * idx + 2] = (result.z < 0);
-	return glm::max(result, 0.0f);
+	return result;
 }
 
 // Forward version of 2D covariance matrix computation
@@ -160,7 +155,6 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	const glm::vec4* rotations,
 	const float* opacities,
 	const float* shs,
-	bool* clamped,
 	const float* cov3D_precomp,
 	const float* colors_precomp,
 	const float* viewmatrix,
@@ -240,7 +234,7 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	// spherical harmonics coefficients to RGB color.
 	if (colors_precomp == nullptr)
 	{
-		glm::vec3 result = computeColorFromSH(idx, D, M, (glm::vec3*)orig_points, *cam_pos, shs, clamped);
+		glm::vec3 result = computeColorFromSH(idx, D, M, (glm::vec3*)orig_points, *cam_pos, shs);
 		rgb[idx * C + 0] = result.x;
 		rgb[idx * C + 1] = result.y;
 		rgb[idx * C + 2] = result.z;
@@ -416,7 +410,6 @@ void FORWARD::preprocess(int P, int D, int M,
 	const glm::vec4* rotations,
 	const float* opacities,
 	const float* shs,
-	bool* clamped,
 	const float* cov3D_precomp,
 	const float* colors_precomp,
 	const float* viewmatrix,
@@ -443,7 +436,6 @@ void FORWARD::preprocess(int P, int D, int M,
 		rotations,
 		opacities,
 		shs,
-		clamped,
 		cov3D_precomp,
 		colors_precomp,
 		viewmatrix, 
