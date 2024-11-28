@@ -55,6 +55,9 @@ class Camera(nn.Module):
     def original_image(self, bg: torch.tensor = [0.,0.,0.]):
         return self._original_image * self._gt_alpha_mask + bg[:,None,None] * (1. - self._gt_alpha_mask)
 
+    def gt_alpha_mask(self):
+        return self._gt_alpha_mask
+
 class MiniCam:
     def __init__(self, width, height, fovy, fovx, znear, zfar, world_view_transform, full_proj_transform):
         self.image_width = width

@@ -14,6 +14,8 @@ import torch
 def mse(img1, img2):
     return (((img1 - img2)) ** 2).view(img1.shape[0], -1).mean(1, keepdim=True)
 
-def psnr(img1, img2):
-    mse = (((img1 - img2)) ** 2).view(img1.shape[0], -1).mean(1, keepdim=True)
+def psnr(img1, img2, mask = None):
+    if mask is None:
+        mask = torch.ones_like(img1[:1])
+    mse = (((img1 - img2) * mask) ** 2).view(img1.shape[0], -1).sum(1, keepdim=True) / (mask.sum() + 1.e-6)
     return 20 * torch.log10(1.0 / torch.sqrt(mse))
