@@ -182,6 +182,10 @@ def readCamerasFromTransforms(path, transformsfile, extension=".png"):
     with open(os.path.join(path, transformsfile)) as json_file:
         contents = json.load(json_file)
         fovx = contents["camera_angle_x"]
+        if "camera_angle_y" in contents:
+            fovy = contents["camera_angle_y"]
+        else:
+            fovy = None
 
         frames = contents["frames"]
         for idx, frame in enumerate(frames):
@@ -203,8 +207,7 @@ def readCamerasFromTransforms(path, transformsfile, extension=".png"):
 
             image = image.convert("RGBA")
 
-            fovy = focal2fov(fov2focal(fovx, image.size[0]), image.size[1])
-            FovY = fovy 
+            FovY = fovy if fovy else focal2fov(fov2focal(fovx, image.size[0]), image.size[1])
             FovX = fovx
 
             cam_infos.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
