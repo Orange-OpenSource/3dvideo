@@ -215,13 +215,22 @@ def readCamerasFromTransforms(path, transformsfile, extension=".png"):
             
     return cam_infos
 
-def readNerfSyntheticInfo(path, eval, extension=".png"):
+def readNerfSyntheticInfo(path, eval, extension=".png", llffhold=8):
     print("Reading Training Transforms")
     train_cam_infos = readCamerasFromTransforms(path, "transforms_train.json", extension)
-    print("Reading Test Transforms")
-    test_cam_infos = readCamerasFromTransforms(path, "transforms_test.json", extension)
+    if os.path.exists(os.path.join(path, "transforms_test.json")):
+        print("Reading Test Transforms")
+        test_cam_infos = readCamerasFromTransforms(path, "transforms_test.json", extension)
+    else:
+        test_cam_infos = []
     
-    if not eval:
+    if eval:
+        if not test_cam_infos:
+            print("Select Test Transforms from Training Transforms (1/%d)" % llffhold)
+            # if no transforms_test, same behavior as colmap:
+            test_cam_infos = [c for idx, c in enumerate(train_cam_infos) if idx % llffhold == 0]
+            train_cam_infos = [c for idx, c in enumerate(train_cam_infos) if idx % llffhold != 0]
+    else:
         train_cam_infos.extend(test_cam_infos)
         test_cam_infos = []
 
