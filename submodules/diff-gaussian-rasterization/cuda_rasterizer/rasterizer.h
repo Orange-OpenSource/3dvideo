@@ -26,6 +26,7 @@ namespace CudaRasterizer
 			float* means3D,
 			float* viewmatrix,
 			float* projmatrix,
+			const float znear,
 			bool* present);
 
 		static int forward(
@@ -48,6 +49,7 @@ namespace CudaRasterizer
 			const float* cam_pos,
 			const float tan_fovx, float tan_fovy,
 			const bool prefiltered,
+			const float znear,
 			float* out_color,
 			float* debugBuffer,
 			int* radii = nullptr,

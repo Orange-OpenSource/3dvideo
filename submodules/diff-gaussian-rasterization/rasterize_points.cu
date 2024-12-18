@@ -52,6 +52,7 @@ RasterizeGaussiansCUDA(
 	const int degree,
 	const torch::Tensor& campos,
 	const bool prefiltered,
+	const float znear,
 	const bool debug)
 {
   if (means3D.ndimension() != 2 || means3D.size(1) != 3) {
@@ -108,6 +109,7 @@ RasterizeGaussiansCUDA(
 		tan_fovx,
 		tan_fovy,
 		prefiltered,
+		znear,
 		out_color.contiguous().data<float>(),
 		debugBuffer.contiguous().data<float>(),
 		radii.contiguous().data<int>(),
@@ -202,7 +204,8 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 torch::Tensor markVisible(
 		torch::Tensor& means3D,
 		torch::Tensor& viewmatrix,
-		torch::Tensor& projmatrix)
+		torch::Tensor& projmatrix,
+		const float znear)
 { 
   const int P = means3D.size(0);
   
@@ -214,6 +217,7 @@ torch::Tensor markVisible(
 		means3D.contiguous().data<float>(),
 		viewmatrix.contiguous().data<float>(),
 		projmatrix.contiguous().data<float>(),
+		znear,
 		present.contiguous().data<bool>());
   }
   

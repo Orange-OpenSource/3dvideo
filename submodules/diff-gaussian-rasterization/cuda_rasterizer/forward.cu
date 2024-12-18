@@ -192,6 +192,7 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	const int W, int H,
 	const float tan_fovx, float tan_fovy,
 	const float focal_x, float focal_y,
+	const float znear,
 	int* radii,
 	float2* points_xy_image,
 	float* depths,
@@ -214,7 +215,7 @@ __global__ void preprocessCUDA(int P, int D, int M,
 
 	// Perform near culling, quit if outside.
 	float3 p_view;
-	if (!in_frustum(idx, orig_points, viewmatrix, projmatrix, prefiltered, p_view))
+	if (!in_frustum(idx, orig_points, viewmatrix, projmatrix, prefiltered, znear, p_view))
 		return;
 
 	// Transform point by projecting
@@ -449,6 +450,7 @@ void FORWARD::preprocess(int P, int D, int M,
 	const int W, int H,
 	const float focal_x, float focal_y,
 	const float tan_fovx, float tan_fovy,
+	const float znear,
 	int* radii,
 	float2* means2D,
 	float* depths,
@@ -476,6 +478,7 @@ void FORWARD::preprocess(int P, int D, int M,
 		W, H,
 		tan_fovx, tan_fovy,
 		focal_x, focal_y,
+		znear,
 		radii,
 		means2D,
 		depths,

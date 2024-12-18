@@ -36,6 +36,7 @@ namespace FORWARD
 		const int W, int H,
 		const float focal_x, float focal_y,
 		const float tan_fovx, float tan_fovy,
+		const float znear,
 		int* radii,
 		float2* points_xy_image,
 		float* depths,
