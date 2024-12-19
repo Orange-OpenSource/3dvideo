@@ -22,18 +22,7 @@ from pathlib import Path
 from plyfile import PlyData, PlyElement
 from utils.sh_utils import SH2RGB
 from scene.gaussian_model import BasicPointCloud
-
-class CameraInfo(NamedTuple):
-    uid: int
-    R: np.array
-    T: np.array
-    FovY: np.array
-    FovX: np.array
-    image: np.array
-    image_path: str
-    image_name: str
-    width: int
-    height: int
+from utils.camera_utils import CameraInfo
 
 class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud
@@ -65,7 +54,7 @@ def getNerfppNorm(cam_info):
 
     return {"translate": translate, "radius": radius}
 
-def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
+def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, folder):
     cam_infos = []
     for idx, key in enumerate(cam_extrinsics):
         sys.stdout.write('\r')
@@ -94,12 +83,12 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
         else:
             assert False, "Colmap camera model not handled: only undistorted datasets (PINHOLE or SIMPLE_PINHOLE cameras) supported!"
 
-        image_path = os.path.join(images_folder, os.path.basename(extr.name))
-        image_name = os.path.basename(image_path).split(".")[0]
+        image_relpath = os.path.join(images_folder, extr.name)
+        image_path = os.path.join(folder, image_relpath)
         image = Image.open(image_path)
 
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                              image_path=image_path, image_name=image_name, width=width, height=height)
+                              image_name=image_relpath, width=width, height=height)
         cam_infos.append(cam_info)
     sys.stdout.write('\n')
     return cam_infos
@@ -142,7 +131,7 @@ def readColmapSceneInfo(path, images, eval, llffhold=8):
         cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
 
     reading_dir = "images" if images == None else images
-    cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, images_folder=os.path.join(path, reading_dir))
+    cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, images_folder=reading_dir, folder=path)
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
 
     if eval:
@@ -189,7 +178,9 @@ def readCamerasFromTransforms(path, transformsfile, extension=".png"):
 
         frames = contents["frames"]
         for idx, frame in enumerate(frames):
-            cam_name = os.path.join(path, frame["file_path"] + extension)
+            cam_name = frame["file_path"]
+            if not cam_name.split(".")[-1].lower() in ["jpg", "jpeg", "png"]:
+                cam_name += extension
 
             # NeRF 'transform_matrix' is a camera-to-world transform
             c2w = np.array(frame["transform_matrix"])
@@ -202,18 +193,52 @@ def readCamerasFromTransforms(path, transformsfile, extension=".png"):
             T = w2c[:3, 3]
 
             image_path = os.path.join(path, cam_name)
-            image_name = Path(cam_name).stem
+            image_name = cam_name
             image = Image.open(image_path)
 
             image = image.convert("RGBA")
 
-            FovY = fovy if fovy else focal2fov(fov2focal(fovx, image.size[0]), image.size[1])
-            FovX = fovx
+            FovX = frame["camera_angle_x"] if "camera_angle_x" in frame else fovx
+            FovY = frame["camera_angle_y"] if "camera_angle_y" in frame else fovy if fovy else focal2fov(fov2focal(fovx, image.size[0]), image.size[1])
 
             cam_infos.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                            image_path=image_path, image_name=image_name, width=image.size[0], height=image.size[1]))
+                                        image_name=image_name, width=image.size[0], height=image.size[1]))
             
     return cam_infos
+
+def camerasToTransforms(cam_infos, path):
+    contents = {}
+    contents["camera_angle_x"] = cam_infos[0].FovX
+    contents["camera_angle_y"] = cam_infos[0].FovY
+    contents["cx"] = cam_infos[0].width / 2
+    contents["cy"] = cam_infos[0].height / 2
+    contents["h"] = cam_infos[0].height
+    contents["w"] = cam_infos[0].width
+    contents["frames"] = []
+
+    for cam_info in cam_infos:
+        frame = {}
+        frame["file_path"] = cam_info.image_name
+        w2c = np.eye(4)
+        w2c[:3,:3] = cam_info.R.T
+        w2c[:3,3] = cam_info.T
+        c2w = np.linalg.inv(w2c)
+        c2w[:3, 1:3] *= -1 # from COLMAP camera axes (Y down, Z forward) to OpenGL/Blender (Y up, Z back)
+        frame["transform_matrix"] = c2w.tolist()
+        frame["camera_angle_x"] = cam_info.FovX
+        frame["camera_angle_y"] = cam_info.FovY
+        contents["frames"] += [frame]
+
+    # sort by image_path
+    contents["frames"] = sorted(contents["frames"], key=lambda f: f['file_path'])
+
+    i = 0
+    basepath = ".".join(path.split(".")[:-1]) # remove .json ext
+    while os.path.exists(path):
+        path = f"{basepath}-{i}.json"
+        i += 1
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    return json.dump(contents, open(path, 'w'), indent=2)
 
 def readNerfSyntheticInfo(path, eval, extension=".png", llffhold=8):
     print("Reading Training Transforms")

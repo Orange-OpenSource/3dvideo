@@ -13,10 +13,10 @@ import os
 import random
 import json
 from utils.system_utils import searchForMaxIteration
-from scene.dataset_readers import sceneLoadTypeCallbacks
+from scene.dataset_readers import sceneLoadTypeCallbacks, camerasToTransforms
 from scene.gaussian_model import GaussianModel
 from arguments import ModelParams
-from utils.camera_utils import cameraList_from_camInfos, camera_to_JSON
+from utils.camera_utils import cameraList_from_camInfos, camera_to_JSON, cameraList_to_camInfos
 
 class Scene:
 
@@ -27,6 +27,7 @@ class Scene:
         :param path: Path to colmap scene main folder.
         """
         self.model_path = args.model_path
+        self.source_path = args.source_path # in case we train test cams pos and want to save them
         self.loaded_iter = None
         self.gaussians = gaussians
 
@@ -76,15 +77,19 @@ class Scene:
 
         if self.loaded_iter:
             self.gaussians.load_ply(os.path.join(self.model_path,
-                                                           "point_cloud",
-                                                           "iteration_" + str(self.loaded_iter),
-                                                           "point_cloud.ply"))
+                                                 "point_cloud",
+                                                 "iteration_" + str(self.loaded_iter),
+                                                 "point_cloud.ply"))
         else:
             self.gaussians.create_from_pcd(scene_info.point_cloud, self.cameras_extent)
 
     def save(self, iteration):
         point_cloud_path = os.path.join(self.model_path, "point_cloud/iteration_{}".format(iteration))
         self.gaussians.save_ply(os.path.join(point_cloud_path, "point_cloud.ply"))
+        cam_path = os.path.join(self.model_path, "cameras/iteration_{}".format(iteration))
+        if self.getTestCameras():
+            camerasToTransforms(cameraList_to_camInfos(self.getTestCameras()), os.path.join(cam_path, "transforms_test.json"))
+        camerasToTransforms(cameraList_to_camInfos(self.getTrainCameras()), os.path.join(cam_path, "transforms_train.json"))
 
     def getTrainCameras(self, scale=1.0):
         return self.train_cameras[scale]

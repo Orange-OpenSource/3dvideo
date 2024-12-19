@@ -14,8 +14,20 @@ import numpy as np
 from utils.general_utils import PILtoTorch
 from utils.graphics_utils import fov2focal
 import torch
+from typing import NamedTuple
 
 WARNED = False
+
+class CameraInfo(NamedTuple):
+    uid: int
+    R: np.array
+    T: np.array
+    FovY: np.array
+    FovX: np.array
+    image: np.array
+    image_name: str
+    width: int
+    height: int
 
 def loadCam(args, id, cam_info, resolution_scale):
     orig_w, orig_h = cam_info.image.size
@@ -49,6 +61,16 @@ def loadCam(args, id, cam_info, resolution_scale):
                   image=gt_image, gt_alpha_mask=loaded_mask,
                   image_name=cam_info.image_name, uid=id, data_device=args.data_device)
 
+def camInfo(id, cam: Camera):
+    image = torch.cat([cam._original_image, cam._gt_alpha_mask], dim=0)
+    R = cam.R
+    T = cam.T
+    fovx = cam.FoVx
+    fovy = cam.FoVy
+    cam_info = CameraInfo(uid=id, R=R, T=T, FovX=fovx, FovY=fovy, image=image,
+                          image_name=cam.image_name, width=image.shape[2], height=image.shape[1])
+    return cam_info
+
 def cameraList_from_camInfos(cam_infos, resolution_scale, args):
     camera_list = []
 
@@ -56,6 +78,14 @@ def cameraList_from_camInfos(cam_infos, resolution_scale, args):
         camera_list.append(loadCam(args, id, c, resolution_scale))
 
     return camera_list
+
+def cameraList_to_camInfos(cam_list):
+    camera_infos = []
+
+    for id, c in enumerate(cam_list):
+        camera_infos.append(camInfo(id, c))
+
+    return camera_infos
 
 def camera_to_JSON(id, camera : Camera):
     Rt = np.zeros((4, 4))

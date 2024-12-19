@@ -200,11 +200,11 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                     image = torch.clamp(render_dict["render"], 0.0, 1.0)
                     gt_image = torch.clamp(viewpoint.original_image(renderArgs[1]).to("cuda"), 0.0, 1.0)
                     if tb_writer and (idx < 5):
-                        tb_writer.add_images(config['name'] + "_view_{}/render".format(viewpoint.image_name), image[None], global_step=iteration)
+                        tb_writer.add_images(config['name'] + "_view_{}/render".format(viewpoint.display_name()), image[None], global_step=iteration)
                         alpha_image = 1. - render_dict["debugBuffer"][1:2] # debugBuffer returns transparency
-                        tb_writer.add_images(config['name'] + "_view_{}/alpha".format(viewpoint.image_name), alpha_image[None], global_step=iteration)
+                        tb_writer.add_images(config['name'] + "_view_{}/alpha".format(viewpoint.display_name()), alpha_image[None], global_step=iteration)
                         if iteration == testing_iterations[0]:
-                            tb_writer.add_images(config['name'] + "_view_{}/ground_truth".format(viewpoint.image_name), gt_image[None], global_step=iteration)
+                            tb_writer.add_images(config['name'] + "_view_{}/ground_truth".format(viewpoint.display_name()), gt_image[None], global_step=iteration)
                     l1_test += l1_loss(image, gt_image).mean().double()
                     psnr_test += psnr(image, gt_image).mean().double()
                     masked_psnr_test += psnr(image, gt_image, viewpoint.gt_alpha_mask()).mean().double()

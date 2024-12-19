@@ -13,6 +13,7 @@ import torch
 from torch import nn
 import numpy as np
 from utils.graphics_utils import getWorld2View2, getProjectionMatrix
+from pathlib import Path
 
 class Camera(nn.Module):
     def __init__(self, colmap_id, R, T, FoVx, FoVy, image, gt_alpha_mask,
@@ -57,6 +58,9 @@ class Camera(nn.Module):
 
     def gt_alpha_mask(self):
         return self._gt_alpha_mask
+
+    def display_name(self):
+        return Path(self.image_name).stem
 
 class MiniCam:
     def __init__(self, width, height, fovy, fovx, znear, zfar, world_view_transform, full_proj_transform):
