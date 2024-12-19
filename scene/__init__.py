@@ -17,12 +17,14 @@ from scene.dataset_readers import sceneLoadTypeCallbacks, camerasToTransforms
 from scene.gaussian_model import GaussianModel
 from arguments import ModelParams
 from utils.camera_utils import cameraList_from_camInfos, camera_to_JSON, cameraList_to_camInfos
+import math
+from torch.optim import Adam
 
 class Scene:
 
     gaussians : GaussianModel
 
-    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, shuffle=True, resolution_scales=[1.0]):
+    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, shuffle=True, resolution_scales=[1.0], opt=None):
         """b
         :param path: Path to colmap scene main folder.
         """
@@ -30,6 +32,7 @@ class Scene:
         self.source_path = args.source_path # in case we train test cams pos and want to save them
         self.loaded_iter = None
         self.gaussians = gaussians
+        self.tune_cams = opt.tune_cams if opt else False
 
         if load_iteration:
             if load_iteration == -1:
@@ -71,9 +74,20 @@ class Scene:
 
         for resolution_scale in resolution_scales:
             print("Loading Training Cameras")
-            self.train_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.train_cameras, resolution_scale, args)
+            self.train_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.train_cameras, resolution_scale, args, tuned=self.tune_cams)
             print("Loading Test Cameras")
-            self.test_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.test_cameras, resolution_scale, args)
+            self.test_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.test_cameras, resolution_scale, args, tuned=self.tune_cams)
+            for c in self.test_cameras[resolution_scale]:
+                c.is_test = True
+        if self.tune_cams:
+            fov_params = [c._FoVx for c in self.test_cameras[resolution_scale] + self.train_cameras[resolution_scale]]
+            fov_params += [c._FoVy for c in self.test_cameras[resolution_scale] + self.train_cameras[resolution_scale]]
+            l = [{"name": "cam_q", "lr": opt.cam_q_lr, "params": [c.world_view_q for c in self.test_cameras[resolution_scale] + self.train_cameras[resolution_scale]]},
+                 {"name": "cam_t", "lr": opt.cam_t_lr, "params": [c.world_view_t for c in self.test_cameras[resolution_scale] + self.train_cameras[resolution_scale]]},
+                 {"name": "cam_fov", "lr": opt.cam_fov_lr, "params": fov_params}]
+            self.cam_optimizer = Adam(l)
+        else:
+            self.cam_optimizer = None
 
         if self.loaded_iter:
             self.gaussians.load_ply(os.path.join(self.model_path,

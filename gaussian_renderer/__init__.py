@@ -30,8 +30,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         pass
 
     # Set up rasterization configuration
-    tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
-    tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
+    tanfovx = math.tan(viewpoint_camera.FoVx() * 0.5)
+    tanfovy = math.tan(viewpoint_camera.FoVy() * 0.5)
 
     raster_settings = GaussianRasterizationSettings(
         image_height=int(viewpoint_camera.image_height),
@@ -40,10 +40,10 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         tanfovy=tanfovy,
         bg=bg_color,
         scale_modifier=scaling_modifier,
-        viewmatrix=viewpoint_camera.world_view_transform,
-        projmatrix=viewpoint_camera.full_proj_transform,
+        viewmatrix=viewpoint_camera.get_world_view_transform(),
+        projmatrix=viewpoint_camera.get_full_proj_transform(),
         sh_degree=pc.active_sh_degree,
-        campos=viewpoint_camera.camera_center,
+        campos=viewpoint_camera.get_camera_center(),
         prefiltered=False,
         znear=pipe.znear,
         debug=pipe.debug
@@ -73,7 +73,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     if override_color is None:
         if pipe.convert_SHs_python:
             shs_view = pc.get_features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
-            dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features.shape[0], 1))
+            dir_pp = (pc.get_xyz - viewpoint_camera.get_camera_center().repeat(pc.get_features.shape[0], 1))
             dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
             sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
             colors_precomp = torch.clamp_min(sh2rgb + 0.5, 0.0)

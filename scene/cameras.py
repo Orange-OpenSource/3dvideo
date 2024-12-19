@@ -10,15 +10,35 @@
 #
 
 import torch
-from torch import nn
+from torch import nn, sqrt
 import numpy as np
 from utils.graphics_utils import getWorld2View2, getProjectionMatrix
 from pathlib import Path
 
+def quaternion_to_matrix(q):
+    q = q / (q.norm() + 1.e-7)
+    a,b,c,d = q[0], q[1], q[2], q[3]
+    m = torch.stack([torch.stack([a**2+b**2-c**2-d**2, 2*b*c-2*a*d, 2*a*c+2*b*d]),
+                     torch.stack([2*a*d+2*b*c, a**2-b**2+c**2-d**2, 2*c*d-2*a*b]),
+                     torch.stack([2*b*d-2*a*c, 2*a*b+2*c*d, a**2-b**2-c**2+d**2])])
+    return m
+
+def matrix_to_quaternion(m):
+    assert m.shape[0] == 3 and m.shape[1] == 3
+    Qxx,Qyx,Qzx = m[0]
+    Qxy,Qyy,Qzy = m[1]
+    Qxz,Qyz,Qzz = m[2]
+    K = 1 / 3 * torch.tensor([[Qxx - Qyy - Qzz, Qyx + Qxy, Qzx + Qxz, Qyz - Qzy],
+                              [Qyx + Qxy, Qyy - Qxx - Qzz, Qzy + Qyz, Qzx - Qxz],
+                              [Qzx + Qxz, Qzy + Qyz, Qzz - Qxx - Qyy, Qxy - Qyx],
+                              [Qyz - Qzy, Qzx - Qxz, Qxy - Qyx, Qxx + Qyy + Qzz]], device=m.device)
+    b,c,d,a = torch.linalg.eigh(K).eigenvectors[:,-1] # quaternion is the eigen vector of biggest eigen value
+    return torch.stack([a,b,c,d])
+
 class Camera(nn.Module):
     def __init__(self, colmap_id, R, T, FoVx, FoVy, image, gt_alpha_mask,
                  image_name, uid,
-                 trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device = "cuda"
+                 trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device = "cuda",
                  ):
         super(Camera, self).__init__()
 
@@ -26,9 +46,10 @@ class Camera(nn.Module):
         self.colmap_id = colmap_id
         self.R = R
         self.T = T
-        self.FoVx = FoVx
-        self.FoVy = FoVy
+        self._FoVx = torch.tensor(FoVx, device=data_device)
+        self._FoVy = torch.tensor(FoVy, device=data_device)
         self.image_name = image_name
+        self.is_test = False
 
         try:
             self.data_device = torch.device(data_device)
@@ -48,10 +69,21 @@ class Camera(nn.Module):
         self.trans = trans
         self.scale = scale
 
-        self.world_view_transform = torch.tensor(getWorld2View2(R, T, trans, scale)).transpose(0, 1).cuda()
-        self.projection_matrix = getProjectionMatrix(znear=self.znear, zfar=self.zfar, fovX=self.FoVx, fovY=self.FoVy).transpose(0,1).cuda()
-        self.full_proj_transform = (self.world_view_transform.unsqueeze(0).bmm(self.projection_matrix.unsqueeze(0))).squeeze(0)
-        self.camera_center = self.world_view_transform.inverse()[3, :3]
+        self._world_view_transform = torch.tensor(getWorld2View2(R, T, trans, scale)).transpose(0, 1).cuda()
+
+        self.is_trained = False
+
+    def get_projection_matrix(self):
+        return getProjectionMatrix(znear=self.znear, zfar=self.zfar, fovX=self.FoVx(), fovY=self.FoVy()).transpose(0,1)
+
+    def get_world_view_transform(self):
+        return self._world_view_transform
+
+    def get_camera_center(self):
+        return self.get_world_view_transform().inverse()[3, :3]
+
+    def get_full_proj_transform(self):
+        return (self.get_world_view_transform().unsqueeze(0).bmm(self.get_projection_matrix().unsqueeze(0))).squeeze(0)
 
     def original_image(self, bg: torch.tensor = [0.,0.,0.]):
         return self._original_image * self._gt_alpha_mask + bg[:,None,None] * (1. - self._gt_alpha_mask)
@@ -61,6 +93,54 @@ class Camera(nn.Module):
 
     def display_name(self):
         return Path(self.image_name).stem
+
+    def FoVx(self):
+        return self._FoVx
+
+    def FoVy(self):
+        return self._FoVy
+
+class TrainedCamera(Camera):
+    def __init__(self, colmap_id, R, T, FoVx, FoVy, image, gt_alpha_mask,
+                 image_name, uid,
+                 trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device = "cuda"
+                 ):
+        super(TrainedCamera, self).__init__(colmap_id, R, T, FoVx, FoVy, image, gt_alpha_mask,
+                                            image_name, uid, trans, scale, data_device)
+        w2c = self._world_view_transform.transpose(0, 1)
+        self.world_view_q = matrix_to_quaternion(w2c[:3,:3]).requires_grad_(True)
+        self.world_view_t = w2c[:3,3].requires_grad_(True)
+        self._FoVx = torch.tensor(FoVx, device=data_device).requires_grad_(True)
+        self._FoVy = torch.tensor(FoVy, device=data_device).requires_grad_(True)
+        self.is_trained = True
+        self.ema_loss = 0.
+        self.ema_loss_short = 0.
+        self.improving = False
+        # keep track of last gradients, for debug purpose
+        self.dL_dcamt = 0.
+        self.dL_dcamq = 0.
+        self.dL_dfovx = 0.
+        self.dL_dfovy = 0.
+
+    def grad_score(self):
+        return 0.1 * abs(self.dL_dcamq) + abs(self.dL_dcamt) + abs(self.dL_dfovx) + abs(self.dL_dfovy)
+
+    def get_world_view_transform(self):
+        matrix = torch.eye(4).to(self.world_view_q)
+        matrix[:3,:3] = quaternion_to_matrix(self.world_view_q / self.world_view_q.norm())
+        matrix[:3,3] = self.world_view_t
+        return matrix.transpose(0,1)
+
+    def update_grads(self, grads):
+        self.world_view_q._grad = grads[0]
+        self.world_view_t._grad = grads[1]
+        self._FoVx._grad = grads[2]
+        self._FoVy._grad = grads[3]
+        # keep grads for debug info:
+        self.dL_dcamq = self.world_view_q._grad.norm().item()
+        self.dL_dcamt = self.world_view_t._grad.norm().item()
+        self.dL_dfovx = self._FoVx._grad.abs().item()
+        self.dL_dfovy = self._FoVy._grad.abs().item()
 
 class MiniCam:
     def __init__(self, width, height, fovy, fovx, znear, zfar, world_view_transform, full_proj_transform):

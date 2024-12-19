@@ -9,7 +9,7 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
-from scene.cameras import Camera
+from scene.cameras import Camera, TrainedCamera
 import numpy as np
 from utils.general_utils import PILtoTorch
 from utils.graphics_utils import fov2focal
@@ -29,7 +29,7 @@ class CameraInfo(NamedTuple):
     width: int
     height: int
 
-def loadCam(args, id, cam_info, resolution_scale):
+def loadCam(args, id, cam_info, resolution_scale, tuned):
     orig_w, orig_h = cam_info.image.size
 
     if args.resolution in [1, 2, 4, 8]:
@@ -56,26 +56,34 @@ def loadCam(args, id, cam_info, resolution_scale):
     gt_image = resized_image_rgb[:3, ...]
     loaded_mask = resized_image_rgb[3:4, ...] if resized_image_rgb.shape[0] == 4 else torch.ones_like(resized_image_rgb[:1, ...])
 
-    return Camera(colmap_id=cam_info.uid, R=cam_info.R, T=cam_info.T, 
-                  FoVx=cam_info.FovX, FoVy=cam_info.FovY, 
-                  image=gt_image, gt_alpha_mask=loaded_mask,
-                  image_name=cam_info.image_name, uid=id, data_device=args.data_device)
+    if tuned:
+        return TrainedCamera(colmap_id=cam_info.uid, R=cam_info.R, T=cam_info.T,
+                            FoVx=cam_info.FovX, FoVy=cam_info.FovY,
+                            image=gt_image, gt_alpha_mask=loaded_mask,
+                            image_name=cam_info.image_name, uid=id, data_device=args.data_device)
+    else:
+        return Camera(colmap_id=cam_info.uid, R=cam_info.R, T=cam_info.T,
+                    FoVx=cam_info.FovX, FoVy=cam_info.FovY,
+                    image=gt_image, gt_alpha_mask=loaded_mask,
+                    image_name=cam_info.image_name, uid=id, data_device=args.data_device)
 
 def camInfo(id, cam: Camera):
     image = torch.cat([cam._original_image, cam._gt_alpha_mask], dim=0)
-    R = cam.R
-    T = cam.T
-    fovx = cam.FoVx
-    fovy = cam.FoVy
+    # cam.R and cam.T can be obsolete if tuned camera => reprocess them from get_world_view_transform
+    w2c = cam.get_world_view_transform().t().detach().cpu().numpy()
+    R = w2c[:3,:3].T # see getWorld2View2
+    T = w2c[:3,3]
+    fovx = cam.FoVx().detach().cpu().item()
+    fovy = cam.FoVy().detach().cpu().item()
     cam_info = CameraInfo(uid=id, R=R, T=T, FovX=fovx, FovY=fovy, image=image,
                           image_name=cam.image_name, width=image.shape[2], height=image.shape[1])
     return cam_info
 
-def cameraList_from_camInfos(cam_infos, resolution_scale, args):
+def cameraList_from_camInfos(cam_infos, resolution_scale, args, tuned = False):
     camera_list = []
 
     for id, c in enumerate(cam_infos):
-        camera_list.append(loadCam(args, id, c, resolution_scale))
+        camera_list.append(loadCam(args, id, c, resolution_scale, tuned))
 
     return camera_list
 

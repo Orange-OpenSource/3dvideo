@@ -47,7 +47,7 @@ class GaussianModel:
         self.rotation_activation = torch.nn.functional.normalize
 
 
-    def __init__(self, sh_degree : int, z0 : bool = False, densify_max : int = 1000000, densify_percent : float = 10., max_opacity = 1.0):
+    def __init__(self, sh_degree : int, z0 : bool = False, densify_max : int = 1000000, densify_percent : float = 10., max_opacity = 1.0, min_scaling = 0.0):
         self.active_sh_degree = 0
         self.max_sh_degree = sh_degree  
         self._xyz = torch.empty(0)
@@ -67,6 +67,7 @@ class GaussianModel:
         self.densify_max = densify_max
         self.densify_percent = densify_percent
         self.max_opacity = max_opacity
+        self.min_scaling = min_scaling
 
     def capture(self):
         return (
@@ -104,7 +105,7 @@ class GaussianModel:
 
     @property
     def get_scaling(self):
-        return self.scaling_activation(self._scaling)
+        return self.min_scaling + self.scaling_activation(self._scaling)
     
     @property
     def get_rotation(self):

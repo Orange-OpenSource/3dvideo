@@ -75,6 +75,14 @@ class OptimizationParams(ParamGroup):
     def __init__(self, parser):
         self.iterations = 30_000
         self.deadline = 3_500_000 # should be 3500 on cluster, to meet one hour deadline
+        self.tune_cams = False
+        self.tune_until_iter = 30_000
+        self.tune_from_iter = 7000
+        self.cam_t_lr = 1.e-5
+        self.cam_q_lr = 1.e-5
+        self.cam_fov_lr = 1.e-6
+        self.cam_ema_moment = 0.99
+        self.cam_tuning_priority = 4 # cam tuning will happen (1+4)x more often than gaussian training
         self.position_lr_init = 0.00016
         self.position_lr_final = 0.0000016
         self.position_lr_delay_mult = 0.01
