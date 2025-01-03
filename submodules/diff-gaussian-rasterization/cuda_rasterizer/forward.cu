@@ -129,10 +129,6 @@ __device__ float3 computeCov2D(const float3& mean, float focal_x, float focal_y,
 
 	glm::mat3 cov = glm::transpose(T) * glm::transpose(Vrk) * T;
 
-	// Apply low-pass filter: every Gaussian should be at least
-	// one pixel wide/high. Discard 3rd row and column.
-	cov[0][0] += 0.3f;
-	cov[1][1] += 0.3f;
 	return { float(cov[0][0]), float(cov[0][1]), float(cov[1][1]) };
 }
 
@@ -202,7 +198,8 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	const dim3 grid,
 	uint32_t* tiles_touched,
 	float* zspan,
-	bool prefiltered)
+	bool prefiltered,
+	bool antialiasing)
 {
 	auto idx = cg::this_grid().thread_rank();
 	if (idx >= P)
@@ -240,8 +237,19 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	// Compute 2D screen-space covariance matrix
 	float3 cov = computeCov2D(p_orig, focal_x, focal_y, tan_fovx, tan_fovy, cov3D, viewmatrix);
 
+	constexpr float h_var = 0.3f;
+	const float det_cov = cov.x * cov.z - cov.y * cov.y;
+	cov.x += h_var;
+	cov.z += h_var;
+	const float det_cov_plus_h_cov = cov.x * cov.z - cov.y * cov.y;
+	float h_convolution_scaling = 1.0f;
+
+	if(antialiasing)
+		h_convolution_scaling = sqrt(max(0.000025f, det_cov / det_cov_plus_h_cov)); // max for numerical stability
+
 	// Invert covariance (EWA algorithm)
-	float det = (cov.x * cov.z - cov.y * cov.y);
+	const float det = det_cov_plus_h_cov;
+
 	if (det == 0.0f)
 		return;
 	float det_inv = 1.f / det;
@@ -276,7 +284,10 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	radii[idx] = my_radius;
 	points_xy_image[idx] = point_image;
 	// Inverse 2D covariance and opacity neatly pack into one float4
-	conic_opacity[idx] = { conic.x, conic.y, conic.z, opacities[idx] };
+	float opacity = opacities[idx];
+
+	conic_opacity[idx] = { conic.x, conic.y, conic.z, opacity * h_convolution_scaling };
+
 	tiles_touched[idx] = (rect_max.y - rect_min.y) * (rect_max.x - rect_min.x);
 	computeZspan(scales[idx], rotations[idx], viewmatrix, zspan[idx]);
 }
@@ -460,7 +471,8 @@ void FORWARD::preprocess(int P, int D, int M,
 	const dim3 grid,
 	uint32_t* tiles_touched,
 	float* zspan,
-	bool prefiltered)
+	bool prefiltered,
+	bool antialiasing)
 {
 	preprocessCUDA<NB_CHANNELS> << <(P + 255) / 256, 256 >> > (
 		P, D, M,
@@ -488,6 +500,7 @@ void FORWARD::preprocess(int P, int D, int M,
 		grid,
 		tiles_touched,
 		zspan,
-		prefiltered
+		prefiltered,
+		antialiasing
 		);
 }

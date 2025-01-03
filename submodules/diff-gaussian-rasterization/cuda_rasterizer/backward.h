@@ -43,6 +43,7 @@ namespace BACKWARD
 		const float3* means,
 		const int* radii,
 		const float* shs,
+		const float* opacities,
 		const glm::vec3* scales,
 		const glm::vec4* rotations,
 		const float scale_modifier,
@@ -54,12 +55,14 @@ namespace BACKWARD
 		const glm::vec3* campos,
 		const float3* dL_dmean2D,
 		const float* dL_dconics,
+		float* dL_dopacity,
 		glm::vec3* dL_dmeans,
 		float* dL_dcolor,
 		float* dL_dcov3D,
 		float* dL_dsh,
 		glm::vec3* dL_dscale,
-		glm::vec4* dL_drot);
+		glm::vec4* dL_drot,
+		bool antialiasing);
 }
 
 #endif

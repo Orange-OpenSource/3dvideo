@@ -30,8 +30,6 @@ namespace cg = cooperative_groups;
 #include "forward.h"
 #include "backward.h"
 
-using namespace CudaRasterizer;
-
 // Helper function to find the next-highest bit of the MSB
 // on the CPU.
 uint32_t getHigherMsb(uint32_t n)
@@ -224,6 +222,7 @@ int CudaRasterizer::Rasterizer::forward(
 	const float znear,
 	float* out_color,
 	float* debugBuffer,
+	bool antialiasing,
 	int* radii,
 	bool debug)
 {
@@ -278,7 +277,8 @@ int CudaRasterizer::Rasterizer::forward(
 		tile_grid,
 		geomState.tiles_touched,
 		geomState.zspan,
-		prefiltered
+		prefiltered,
+		antialiasing
 	), debug)
 
 	// Compute prefix sum over full list of touched tile counts by Gaussians
@@ -355,6 +355,7 @@ void CudaRasterizer::Rasterizer::backward(
 	const float* means3D,
 	const float* shs,
 	const float* colors_precomp,
+	const float* opacities,
 	const float* scales,
 	const float scale_modifier,
 	const float* rotations,
@@ -378,6 +379,7 @@ void CudaRasterizer::Rasterizer::backward(
 	float* dL_dscale,
 	float* dL_drot,
 	float* debugBuffer,
+	bool antialiasing,
 	bool debug)
 {
 	GeometryState geomState = GeometryState::fromChunk(geom_buffer, P);
@@ -426,6 +428,7 @@ void CudaRasterizer::Rasterizer::backward(
 		(float3*)means3D,
 		radii,
 		shs,
+		opacities,
 		(glm::vec3*)scales,
 		(glm::vec4*)rotations,
 		scale_modifier,
@@ -437,10 +440,12 @@ void CudaRasterizer::Rasterizer::backward(
 		(glm::vec3*)campos,
 		(float3*)dL_dmean2D,
 		dL_dconic,
+		dL_dopacity,
 		(glm::vec3*)dL_dmean3D,
 		dL_dcolor,
 		dL_dcov3D,
 		dL_dsh,
 		(glm::vec3*)dL_dscale,
-		(glm::vec4*)dL_drot), debug)
+		(glm::vec4*)dL_drot,
+		antialiasing), debug);
 }

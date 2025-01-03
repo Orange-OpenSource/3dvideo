@@ -53,6 +53,7 @@ RasterizeGaussiansCUDA(
 	const torch::Tensor& campos,
 	const bool prefiltered,
 	const float znear,
+	const bool antialiasing,
 	const bool debug)
 {
   if (means3D.ndimension() != 2 || means3D.size(1) != 3) {
@@ -112,6 +113,7 @@ RasterizeGaussiansCUDA(
 		znear,
 		out_color.contiguous().data<float>(),
 		debugBuffer.contiguous().data<float>(),
+		antialiasing,
 		radii.contiguous().data<int>(),
 		debug);
   }
@@ -124,6 +126,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 	const torch::Tensor& means3D,
 	const torch::Tensor& radii,
     const torch::Tensor& colors,
+	const torch::Tensor& opacities,
 	const torch::Tensor& scales,
 	const torch::Tensor& rotations,
 	const float scale_modifier,
@@ -141,7 +144,8 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 	const torch::Tensor& binningBuffer,
 	const torch::Tensor& imageBuffer,
 	torch::Tensor& debugBuffer,
-	const bool debug) 
+	const bool antialiasing,
+	const bool debug)
 {
   const int P = means3D.size(0);
   const int H = dL_dout_color.size(1);
@@ -171,6 +175,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 	  means3D.contiguous().data<float>(),
 	  sh.contiguous().data<float>(),
 	  colors.contiguous().data<float>(),
+	  opacities.contiguous().data<float>(),
 	  scales.data_ptr<float>(),
 	  scale_modifier,
 	  rotations.data_ptr<float>(),
@@ -195,6 +200,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 	  dL_dscales.contiguous().data<float>(),
 	  dL_drotations.contiguous().data<float>(),
 	  debugBuffer.contiguous().data<float>(),
+	  antialiasing,
 	  debug);
   }
 

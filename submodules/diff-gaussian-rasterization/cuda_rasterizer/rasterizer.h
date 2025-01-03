@@ -52,6 +52,7 @@ namespace CudaRasterizer
 			const float znear,
 			float* out_color,
 			float* debugBuffer,
+			bool antialiasing,
 			int* radii = nullptr,
 			bool debug = false);
 
@@ -62,6 +63,7 @@ namespace CudaRasterizer
 			const float* means3D,
 			const float* shs,
 			const float* colors_precomp,
+			const float* opacities,
 			const float* scales,
 			const float scale_modifier,
 			const float* rotations,
@@ -85,6 +87,7 @@ namespace CudaRasterizer
 			float* dL_dscale,
 			float* dL_drot,
 			float* debugBuffer,
+			bool antialiasing,
 			bool debug);
 	};
 };

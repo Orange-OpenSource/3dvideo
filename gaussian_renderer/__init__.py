@@ -46,6 +46,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         campos=viewpoint_camera.get_camera_center(),
         prefiltered=False,
         znear=pipe.znear,
+        antialiasing=pipe.antialiasing,
         debug=pipe.debug
     )
 
