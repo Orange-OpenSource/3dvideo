@@ -116,18 +116,31 @@ class TrainedCamera(Camera):
         self.ema_loss = 0.
         self.ema_loss_short = 0.
         self.improving = False
+        self.score = 0.
+
+    def ndc2Pix(self, v, S):
+        return ((v + 1.0) * S - 1.0) * 0.5
+
+    def update_grads(self, means3D, screenspace_points_grad):
+        means4 = torch.cat([means3D, torch.ones_like(means3D[:,:1])], dim=1)
+        p_hom = means4 @ self.get_full_proj_transform()
+        p_w = 1.0 / (p_hom[:,3] + 1.e-7)
+        p_proj = torch.stack([ p_hom[:,0] * p_w, p_hom[:,1] * p_w, p_hom[:,2] * p_w ], dim=-1) # (N,3)
+        point_image = torch.stack([ self.ndc2Pix(p_proj[:,0], self.image_width), self.ndc2Pix(p_proj[:,1], self.image_height) ], dim=-1)
+        uv = point_image
+        params = [self.world_view_q, self.world_view_t, self._FoVx, self._FoVy]
+        grads = torch.autograd.grad([uv], params, [screenspace_points_grad[:,:2]])
+        with torch.no_grad():
+            self.world_view_q._grad = grads[0]
+            self.world_view_t._grad = grads[1]
+            self._FoVx._grad = grads[2]
+            self._FoVy._grad = grads[3]
 
     def get_world_view_transform(self):
         matrix = torch.eye(4).to(self.world_view_q)
         matrix[:3,:3] = quaternion_to_matrix(self.world_view_q / self.world_view_q.norm())
         matrix[:3,3] = self.world_view_t
         return matrix.transpose(0,1)
-
-    def update_grads(self, grads):
-        self.world_view_q._grad = grads[0]
-        self.world_view_t._grad = grads[1]
-        self._FoVx._grad = grads[2]
-        self._FoVy._grad = grads[3]
 
 class MiniCam:
     def __init__(self, width, height, fovy, fovx, znear, zfar, world_view_transform, full_proj_transform):

@@ -82,15 +82,6 @@ class Scene:
             self.test_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.test_cameras, resolution_scale, args, tuned=self.tune_cams)
             for c in self.test_cameras[resolution_scale]:
                 c.is_test = True
-        if self.tune_cams:
-            fov_params = [c._FoVx for c in self.test_cameras[resolution_scale] + self.train_cameras[resolution_scale]]
-            fov_params += [c._FoVy for c in self.test_cameras[resolution_scale] + self.train_cameras[resolution_scale]]
-            l = [{"name": "cam_q", "lr": opt.cam_q_lr, "params": [c.world_view_q for c in self.test_cameras[resolution_scale] + self.train_cameras[resolution_scale]]},
-                 {"name": "cam_t", "lr": opt.cam_t_lr, "params": [c.world_view_t for c in self.test_cameras[resolution_scale] + self.train_cameras[resolution_scale]]},
-                 {"name": "cam_fov", "lr": opt.cam_fov_lr, "params": fov_params}]
-            self.cam_optimizer = Adam(l)
-        else:
-            self.cam_optimizer = None
 
         if self.loaded_iter:
             self.gaussians.load_ply(os.path.join(self.model_path,

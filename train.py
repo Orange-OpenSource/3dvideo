@@ -24,26 +24,13 @@ from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
 from datetime import datetime
 import json
+from tuner import CamTuner
 
 try:
     from torch.utils.tensorboard import SummaryWriter
     TENSORBOARD_FOUND = True
 except ImportError:
     TENSORBOARD_FOUND = False
-
-def ndc2Pix(v, S):
-	return ((v + 1.0) * S - 1.0) * 0.5
-
-def world_view_grad(means3D, viewpoint_cam, screenspace_points_grad):
-    means4 = torch.cat([means3D, torch.ones_like(means3D[:,:1])], dim=1)
-    p_hom = means4 @ viewpoint_cam.get_full_proj_transform()
-    p_w = 1.0 / (p_hom[:,3] + 1.e-7)
-    p_proj = torch.stack([ p_hom[:,0] * p_w, p_hom[:,1] * p_w, p_hom[:,2] * p_w ], dim=-1) # (N,3)
-    point_image = torch.stack([ ndc2Pix(p_proj[:,0], viewpoint_cam.image_width), ndc2Pix(p_proj[:,1], viewpoint_cam.image_height) ], dim=-1)
-    uv = point_image
-    params = [viewpoint_cam.world_view_q, viewpoint_cam.world_view_t, viewpoint_cam._FoVx, viewpoint_cam._FoVy]
-    grads = torch.autograd.grad([uv], params, [screenspace_points_grad[:,:2]])
-    return grads # (dl_dq, dl_dt, dl_dFoVx) or (dl_dq, dl_dt, dl_dFoVx, dl_dFoVy)
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
     first_iter = 0
@@ -72,22 +59,14 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     iter_start = torch.cuda.Event(enable_timing = True)
     iter_end = torch.cuda.Event(enable_timing = True)
 
+    cam_tuner = CamTuner(scene, background, dataset, opt, pipe, tb_writer, first_iter, testing_iterations, saving_iterations)
+
     viewpoint_stack = None
-    viewpoint_cam = None
-    trained_cam = None
     ema_loss_for_log = 0.0
-    tunings = { c.image_name: 0 for c in scene.getTrainCameras() + scene.getTestCameras()}
     progress_bar = tqdm(range(first_iter, max(opt.iterations, opt.tune_until_iter)), desc="Training progress")
     first_iter += 1
-
-    target_score = 1000.
-    all_viewpoint_stack = scene.getTrainCameras().copy() + scene.getTestCameras().copy()
-    for i,c in enumerate(all_viewpoint_stack):
-        c.idx = i
-
     for iteration in range(first_iter, max(opt.iterations, opt.tune_until_iter) + 1):
-        if iteration < opt.tune_from_iter and iteration > opt.iterations:
-            continue
+        cam_tuner.iter += 1
         if network_gui.conn == None:
             network_gui.try_connect()
         while network_gui.conn != None:
@@ -107,6 +86,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         gaussians.update_learning_rate(iteration)
 
+        # let a chance to cam_tuner to tune one cam
+        cam_tuner.tune(iteration)
+        if iteration > opt.iterations:
+            cam_tuner.tune_after_training()
+            return
+
         if datetime.now().timestamp() - start_datetime > opt.deadline:
             # save as (iteration - 1) because iteration needs to be replayed
             print("\n[ITER {}] Saving Checkpoint for timeout".format(iteration - 1))
@@ -118,42 +103,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             gaussians.oneupSHdegree()
 
         # Pick a random Camera
-        if not viewpoint_stack or iteration in [opt.iterations, opt.tune_from_iter, opt.tune_until_iter]:
-            if iteration <= opt.iterations:
-                viewpoint_stack = scene.getTrainCameras().copy()
-            else:
-                viewpoint_stack = []
-            if opt.tune_cams and iteration == max(first_iter, opt.tune_from_iter):
-                # initialize grad_scores
-                for c in scene.getTrainCameras().copy() + scene.getTestCameras().copy():
-                    bg = torch.rand((3), device="cuda") if opt.random_background else background
-                    gt_image = c.original_image(bg).cuda()
-                    render_pkg = render(c, gaussians, pipe, bg)
-                    image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
-                    Ll2 = torch.mean((image-gt_image)**2)
-                    Ll2.backward()
-                    c.update_grads(world_view_grad(gaussians.get_xyz[visibility_filter], c, screenspace_points_grad=viewspace_point_tensor.grad[visibility_filter]))
-        if opt.tune_cams and iteration >= opt.tune_from_iter and iteration <= opt.tune_until_iter:
-            if not all_viewpoint_stack:
-                all_viewpoint_stack = scene.getTrainCameras().copy() + scene.getTestCameras().copy()
-            if not trained_cam or trained_cam.grad_score() < target_score:
-                # trained_cam score is low, we can chose a new one:
-                target_score = 0.99 * target_score + 0.01 * trained_cam.grad_score() if trained_cam else target_score
-                tb_writer.add_scalar('trained_cam/idx', trained_cam.idx if trained_cam else -1, iteration-1)
-                tb_writer.add_scalar('trained_cam/tuned', (torch.tensor(list(tunings.values())) > 0).sum(), iteration-1)
-                trained_cam = all_viewpoint_stack.pop(0)
-                trained_cam.ema_loss = 0.
-                tunings[trained_cam.image_name] += 1
-                tb_writer.add_scalar('trained_cam/idx', trained_cam.idx if trained_cam else -1, iteration)
-                tb_writer.add_scalar('trained_cam/tuned', (torch.tensor(list(tunings.values())) > 0).sum(), iteration)
-            viewpoint_stack = [c for c in viewpoint_stack if c != trained_cam]
-        else:
-            trained_cam = None
+        if not viewpoint_stack:
+            viewpoint_stack = scene.getTrainCameras().copy()
 
-        if viewpoint_stack and (not trained_cam or iteration % (1 + opt.cam_tuning_priority) == 0):
-            viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
-        else:
-            viewpoint_cam = trained_cam
+        viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
 
         # Render
         if (iteration - 1) == debug_from:
@@ -168,52 +121,32 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         gt_image = viewpoint_cam.original_image(bg).cuda()
 
         Ll1 = l1_loss(image, gt_image)
-        Ll2 = torch.mean((image-gt_image)**2)
-        if viewpoint_cam == trained_cam:
-            loss = Ll2
-            trained_cam.ema_loss = opt.cam_ema_moment * trained_cam.ema_loss + (1. - opt.cam_ema_moment) * loss.item()
-            trained_cam.ema_loss_short = opt.cam_ema_moment * 0.9 * trained_cam.ema_loss_short + (1. - opt.cam_ema_moment * 0.9) * loss.item()
-        else:
-            loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image)) + opt.lambda_psnr * Ll2
+        loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image)) + opt.lambda_psnr * torch.mean((image-gt_image)**2)
         loss.backward()
 
         iter_end.record()
-
-        if viewpoint_cam == trained_cam:
-            # MGE: should integrate clean backpropagation? This is a shortcut...
-            grads = world_view_grad(gaussians.get_xyz[visibility_filter], viewpoint_cam, screenspace_points_grad=viewspace_point_tensor.grad[visibility_filter])
-            viewpoint_cam.update_grads(grads)
 
         with torch.no_grad():
             # Progress bar
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
             if iteration % 10 == 0:
-                log_dict = {"Loss": f"{ema_loss_for_log:.{7}f}"}
-                progress_bar.set_postfix(log_dict)
+                progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}"})
                 progress_bar.update(10)
             if iteration == max(opt.iterations, opt.tune_until_iter):
                 progress_bar.close()
 
             # Log and save
-            if viewpoint_cam == trained_cam:
-                tb_writer.add_scalar('trained_cam/psnr', -10.*torch.log10(Ll2), iteration)
-                tb_writer.add_scalar('trained_cam/psnr_ema', -10.*torch.log10(torch.tensor(trained_cam.ema_loss)), iteration)
-                tb_writer.add_scalar('trained_cam/grad_score', trained_cam.grad_score(), iteration)
-
-            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, tunings, render, (pipe, report_bg))
+            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, report_bg))
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
-                if opt.tune_cams:
-                    cams = scene.getTestCameras() + scene.getTrainCameras()
-                    cams = sorted(cams, key = lambda c: c.grad_score(), reverse=True)
+                cam_tuner.save(iteration)
 
             # Densification
             if iteration < min(opt.densify_until_iter, opt.iterations):
-                if viewpoint_cam != trained_cam:
-                    # Keep track of max radii in image-space for pruning
-                    gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
-                    gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
+                # Keep track of max radii in image-space for pruning
+                gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
+                gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
 
                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
@@ -223,13 +156,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     gaussians.reset_opacity()
 
             # Optimizer step
-            if viewpoint_cam != trained_cam and iteration < opt.iterations:
+            if iteration < opt.iterations:
                 gaussians.optimizer.step()
-            if viewpoint_cam == trained_cam:
-                scene.cam_optimizer.step()
-            if scene.cam_optimizer:
-                scene.cam_optimizer.zero_grad()
-            gaussians.optimizer.zero_grad(set_to_none = True)
+                gaussians.optimizer.zero_grad(set_to_none = True)
 
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
@@ -262,7 +191,7 @@ def prepare_output_and_logger(dataset_args, opt_args):
         print("Tensorboard not available: not logging progress")
     return tb_writer
 
-def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, tunings, renderFunc, renderArgs):
+def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs):
     if tb_writer:
         tb_writer.add_scalar('total_points', scene.gaussians.get_xyz.shape[0], iteration)
         tb_writer.add_scalar('train_loss_patches/l1_loss', Ll1.item(), iteration)
@@ -322,7 +251,8 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default = None)
     args = parser.parse_args(sys.argv[1:])
-    args.save_iterations += [args.iterations]
+    args.save_iterations.append(args.iterations)
+
     if args.tune_cams:
         args.save_iterations += [args.tune_until_iter]
     else:
