@@ -41,9 +41,7 @@ def tb_image(values, highlight = -1):
 class CamTuner():
 
     def __init__(self, scene, background, dataset, opt, pipe, tb_writer, first_iter, testing_iterations, saving_iterations):
-        self.score_ema = 0.
-        # self.score = 0.
-        self.steps = 25
+        self.steps = 50
         self.scene = scene
         self.background = background
         self.opt = opt
@@ -56,12 +54,18 @@ class CamTuner():
         self.tuned_cam = 0 # start with cam 0
         self.bg = torch.rand((3), device="cuda") if self.opt.random_background else self.background
         self.iter = first_iter
-        self.ema_moment = 1.0 / len(self.cams)
-        # roughly 3 chances to tune every cam
-        self.period = int((max(opt.iterations, opt.tune_until_iter) - opt.tune_from_iter) / (3 * len(self.cams))) // 100 * 100
+        self.cam_score_beta = max(1.0 / self.steps, 0.001)
+        # roughly 5 chances to tune every cam
+        self.period = int((max(opt.iterations, opt.tune_until_iter) - opt.tune_from_iter) / (5 * len(self.cams)))
+        self.period = max(self.period // 100 * 100, 100)
         self.testing_iterations = testing_iterations
         self.saving_iterations = saving_iterations
         self.dataset = dataset
+        self.last_init_iter = -1000
+
+        self.tracked = [0, 1, 2]
+        self.iter = 0
+        self.thres = 0.01 / self.steps # get min 0.01dB in steps
 
         if self.opt.tune_cams:
             fov_params = [c._FoVx for c in self.cams] + [c._FoVy for c in self.cams]
@@ -76,8 +80,11 @@ class CamTuner():
         print("initializing the scores of %d cams..." % len(self.cams))
         for c in tqdm(range(len(self.cams))):
             self.tuned_cam = c
-            self.tune(iteration, True)
-        self.score_ema = sum([c.score for c in self.cams]) / len(self.cams)
+            self.cams[c].score = 0.0
+            self.tune_one(min_rounds=2, max_rounds=2)
+        if self.tb_writer:
+            self.tb_writer.add_image("tuning/init_scores", tb_image([c.score for c in self.cams]), self.iter)
+        self.last_init_iter = iteration
 
     def tune_after_training(self):
         print("tuning cameras after training...")
@@ -125,48 +132,57 @@ class CamTuner():
         psnr = None
 
         self.tb_writer.add_scalar("tuning/delta_psnr", -0.1, self.iter-1)
+        self.tb_writer.add_scalar("tuning/tuned", -1, self.iter-1)
+        self.tb_writer.add_scalar("tuning/tuned", self.tuned_cam, self.iter)
         start_iter = self.iter
-        for round in range(20): # repeat 20x if score stays high enough
+
+        saved_state = cam.save_state()
+
+        for round in range(max_rounds): # number to repeat if score stays high enough
+            if round >= min_rounds and cam.score < self.thres:
+                break
             for s in range(self.steps):
                 render_pkg = render(cam, self.scene.gaussians, self.pipe, self.bg)
                 image, viewspace_point_tensor, visibility_filter, _ = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
                 Ll2 = torch.mean((image-gt_image)**2)
+                prev_psnr = psnr
                 psnr = (-10. * torch.log10(Ll2)).item()
-                if s == 0:
-                    round_psnr0 = psnr
-                if psnr0 is None:
+                delta_psnr = 0.0 if prev_psnr is None else psnr - prev_psnr
+                cam.score = cam.score * (1.0 - self.cam_score_beta) + delta_psnr * self.cam_score_beta
+                if s == 0 and round == 0:
                     psnr0 = psnr
                 Ll2.backward()
                 cam.update_grads(self.scene.gaussians.get_xyz[visibility_filter], screenspace_points_grad=viewspace_point_tensor.grad[visibility_filter])
+                if os.path.exists(os.environ["HOME"] + "/tmp/tracked.json"):
+                    j = json.load(open(os.environ["HOME"] + "/tmp/tracked.json"))
+                    if type(j) == list and len(j) > 0 and type(j[0]) == int:
+                        self.tracked = j
+                if self.tb_writer and self.tuned_cam in self.tracked:
+                    for i,l in enumerate(["x", "y", "z"]):
+                        self.tb_writer.add_scalar("tuning%d/%s_grad" % (self.tuned_cam, l), cam.world_view_t._grad[i].item(), self.iter)
+                        self.tb_writer.add_scalar("tuning%d/%s" % (self.tuned_cam, l), cam.world_view_t._grad[i].item(), self.iter)
+                    for v,l in zip([cam.FoVx(), cam.FoVy()], ["fovx", "fovy"]):
+                        self.tb_writer.add_scalar("tuning%d/%s" % (self.tuned_cam, l), v, self.iter)
+                        self.tb_writer.add_scalar("tuning%d/%s_grad" % (self.tuned_cam,l), v._grad, self.iter)
+                    self.tb_writer.add_scalar("tuning%d/loss" % self.tuned_cam, Ll2, self.iter)
                 self.cam_optimizer.step()
                 self.cam_optimizer.zero_grad()
                 if self.tb_writer and (s % 10 == 0 or s == self.steps - 1):
-                    self.tb_writer.add_scalar("tuning/iteration", iteration, self.iter)
                     self.tb_writer.add_scalar("tuning/delta_psnr", psnr - psnr0, self.iter)
                 self.iter += 1
-            cam.score = cam.score * 0.66 + (psnr - round_psnr0) * 0.34
-            if (init and round == 2) or (not init and round > 0 and cam.score < thres):
-                cam.score = (psnr - psnr0) / 3
-                break
-        self.tb_writer.add_scalar("tuning/delta_psnr", -0.1, self.iter+1)
+            if self.tb_writer and self.tuned_cam in self.tracked:
+                self.tb_writer.add_scalar("tuning%d/score" % self.tuned_cam, cam.score, self.iter)
+        if psnr - psnr0 < 0.:
+            # should not happen: come back to previous state
+            cam.score = 0.
+            cam.load_state(saved_state)
+            if self.tb_writer and self.tuned_cam in self.tracked:
+                self.tb_writer.add_scalar("tuning%d/score" % self.tuned_cam, cam.score, self.iter)
+        self.tb_writer.add_scalar("tuning/delta_psnr", -0.1, self.iter + 1)
+        self.tb_writer.add_scalar("tuning/tuned", self.tuned_cam, self.iter)
+        self.tb_writer.add_scalar("tuning/tuned", -1, self.iter + 1)
         self.percam_trainings[self.tuned_cam] += self.iter - start_iter
-        self.percam_improvements[self.tuned_cam] += psnr - psnr0
-        # optimized, update the score_ema and change the tuned cam:
-        self.score_ema = self.score_ema * (1 - self.ema_moment) + cam.score * self.ema_moment
-        next_cam = max(enumerate(self.cams), key=lambda c: c[1].score)[0]
-        if self.tb_writer:
-            if init:
-                if self.tuned_cam == len(self.cams) - 1:
-                    plt.bar(range(len(self.cams)), [c.score for c in self.cams])
-                    self.tb_writer.add_figure("tuning/init_scores", plt.gcf(), 0)
-            else:
-                self.tb_writer.add_image("tuning/trainings", tb_image(self.percam_trainings, highlight=self.tuned_cam), self.iter)
-                self.tb_writer.add_image("tuning/improvements", tb_image(self.percam_improvements, highlight=self.tuned_cam), self.iter)
-                self.tb_writer.add_image("tuning/scores", tb_image([c.score for c in self.cams], highlight=next_cam), self.iter)
-                self.tb_writer.add_scalar("tuning/score_ema", self.score_ema, self.iter+1)
-        self.tuned_cam = next_cam
-
-        return True
+        self.percam_improvements[self.tuned_cam] += max(0., psnr - psnr0)
 
     def save(self, iteration):
         if self.opt.tune_cams:

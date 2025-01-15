@@ -116,7 +116,18 @@ class TrainedCamera(Camera):
         self.ema_loss = 0.
         self.ema_loss_short = 0.
         self.improving = False
-        self.score = 0.
+        self.score = 0.0
+
+    def save_state(self):
+        with torch.no_grad():
+            return self.world_view_q.clone(), self.world_view_t.clone(), self._FoVx.clone(), self._FoVy.clone()
+
+    def load_state(self, state):
+        with torch.no_grad():
+            self.world_view_q.set_(state[0])
+            self.world_view_t.set_(state[1])
+            self._FoVx.set_(state[2])
+            self._FoVy.set_(state[3])
 
     def ndc2Pix(self, v, S):
         return ((v + 1.0) * S - 1.0) * 0.5
