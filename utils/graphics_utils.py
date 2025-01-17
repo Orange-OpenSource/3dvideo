@@ -70,8 +70,9 @@ def getProjectionMatrix(znear, zfar, fovX, fovY):
     P[2, 3] = -(zfar * znear) / (zfar - znear)
     return P
 
-def fov2focal(fov, pixels):
-    return pixels / (2 * math.tan(fov / 2))
+def fov2focal(fov):
+    # focal maps the width (resp height) to 2.
+    return 1.0 / torch.tan(fov / 2) if type(fov) == torch.Tensor else 1.0 / math.tan(fov / 2)
 
-def focal2fov(focal, pixels):
-    return 2*math.atan(pixels/(2*focal))
+def focal2fov(focal):
+    return 2*torch.atan(1.0/focal) if type(focal) == torch.Tensor else 2*math.atan(1.0/focal)

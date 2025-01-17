@@ -116,14 +116,6 @@ class TrainedCamera(Camera):
         self.ema_loss = 0.
         self.ema_loss_short = 0.
         self.improving = False
-        # keep track of last gradients, for debug purpose
-        self.dL_dcamt = 0.
-        self.dL_dcamq = 0.
-        self.dL_dfovx = 0.
-        self.dL_dfovy = 0.
-
-    def grad_score(self):
-        return 0.1 * abs(self.dL_dcamq) + abs(self.dL_dcamt) + abs(self.dL_dfovx) + abs(self.dL_dfovy)
 
     def get_world_view_transform(self):
         matrix = torch.eye(4).to(self.world_view_q)
@@ -136,11 +128,6 @@ class TrainedCamera(Camera):
         self.world_view_t._grad = grads[1]
         self._FoVx._grad = grads[2]
         self._FoVy._grad = grads[3]
-        # keep grads for debug info:
-        self.dL_dcamq = self.world_view_q._grad.norm().item()
-        self.dL_dcamt = self.world_view_t._grad.norm().item()
-        self.dL_dfovx = self._FoVx._grad.abs().item()
-        self.dL_dfovy = self._FoVy._grad.abs().item()
 
 class MiniCam:
     def __init__(self, width, height, fovy, fovx, znear, zfar, world_view_transform, full_proj_transform):

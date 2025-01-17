@@ -73,13 +73,13 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, folder):
 
         if intr.model=="SIMPLE_PINHOLE":
             focal_length_x = intr.params[0]
-            FovY = focal2fov(focal_length_x, height)
-            FovX = focal2fov(focal_length_x, width)
+            FovY = focal2fov(focal_length_x * 2 / height)
+            FovX = focal2fov(focal_length_x * 2 / width)
         elif intr.model=="PINHOLE":
             focal_length_x = intr.params[0]
             focal_length_y = intr.params[1]
-            FovY = focal2fov(focal_length_y, height)
-            FovX = focal2fov(focal_length_x, width)
+            FovY = focal2fov(focal_length_y * 2 / height)
+            FovX = focal2fov(focal_length_x * 2 / width)
         else:
             assert False, "Colmap camera model not handled: only undistorted datasets (PINHOLE or SIMPLE_PINHOLE cameras) supported!"
 
@@ -199,7 +199,7 @@ def readCamerasFromTransforms(path, transformsfile, extension=".png"):
             image = image.convert("RGBA")
 
             FovX = frame["camera_angle_x"] if "camera_angle_x" in frame else fovx
-            FovY = frame["camera_angle_y"] if "camera_angle_y" in frame else fovy if fovy else focal2fov(fov2focal(fovx, image.size[0]), image.size[1])
+            FovY = frame["camera_angle_y"] if "camera_angle_y" in frame else fovy if fovy else focal2fov(image.size[0] / image.size[1] * fov2focal(fovx))
 
             cam_infos.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
                                         image_name=image_name, width=image.size[0], height=image.size[1]))

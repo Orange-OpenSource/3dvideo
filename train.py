@@ -207,9 +207,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 if opt.tune_cams:
                     cams = scene.getTestCameras() + scene.getTrainCameras()
                     cams = sorted(cams, key = lambda c: c.grad_score(), reverse=True)
-                    with open(os.path.join(dataset.model_path, "grad_debug%06d.csv" % iteration), "w") as out:
-                        out.write("name,dL_dcamq,dL_dcamt,dL_dfovx,dL_dfovy,grad_score\n")
-                        out.write("\n".join("%s,%f,%f,%f,%f,%f" % (c.image_name, c.dL_dcamq, c.dL_dcamt, c.dL_dfovx, c.dL_dfovy, c.grad_score()) for c in cams))
 
             # Densification
             if iteration < min(opt.densify_until_iter, opt.iterations):
