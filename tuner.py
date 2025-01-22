@@ -70,13 +70,22 @@ class CamTuner():
         if self.opt.tune_cams:
             fov_params = [c._FoVx for c in self.cams] + [c._FoVy for c in self.cams]
             l = [{"name": "cam_q", "lr": opt.cam_q_lr, "params": [c.world_view_q for c in self.cams]},
-                 {"name": "cam_t", "lr": opt.cam_t_lr, "params": [c.world_view_t for c in self.cams]},
+                 {"name": "cam_xy", "lr": opt.cam_t_lr, "params": [c.world_view_xy for c in self.cams]},
+                 {"name": "cam_z", "lr": opt.cam_t_lr, "params": [c._z for c in self.cams]},
+                 {"name": "cam_a", "lr": opt.cam_t_lr, "params": [c._a for c in self.cams]},
+                 {"name": "cam_b", "lr": opt.cam_t_lr, "params": [c._b for c in self.cams]},
+                 {"name": "cam_c", "lr": opt.cam_t_lr, "params": [c._c for c in self.cams]},
                  {"name": "cam_fov", "lr": opt.cam_fov_lr, "params": fov_params}]
             self.cam_optimizer = Adam(l, betas=(0.9,0.99))
         else:
             self.cam_optimizer = None
 
     def init_list(self, iteration):
+        print("to abc params...")
+        for c in tqdm(range(len(self.cams))):
+            self.tuned_cam = c
+            if not self.cams[c].abc_tuning:
+                self.switch_one_to_abc()
         print("initializing the scores of %d cams..." % len(self.cams))
         for c in tqdm(range(len(self.cams))):
             self.tuned_cam = c
@@ -158,12 +167,18 @@ class CamTuner():
                     if type(j) == list and len(j) > 0 and type(j[0]) == int:
                         self.tracked = j
                 if self.tb_writer and self.tuned_cam in self.tracked:
-                    for i,l in enumerate(["x", "y", "z"]):
-                        self.tb_writer.add_scalar("tuning%d/%s_grad" % (self.tuned_cam, l), cam.world_view_t._grad[i].item(), self.iter)
-                        self.tb_writer.add_scalar("tuning%d/%s" % (self.tuned_cam, l), cam.world_view_t._grad[i].item(), self.iter)
+                    for i,l in enumerate(["x", "y"]):
+                        grad = 0. if cam.world_view_xy._grad is None else cam.world_view_xy._grad[i]
+                        self.tb_writer.add_scalar("tuning%d/%s_grad" % (self.tuned_cam, l), grad, self.iter)
+                        self.tb_writer.add_scalar("tuning%d/%s" % (self.tuned_cam, l), cam.world_view_xy[i].item(), self.iter)
+                    if cam._z._grad is not None:
+                        self.tb_writer.add_scalar("tuning%d/z_grad" % self.tuned_cam, cam._z._grad.item(), self.iter)
+                    self.tb_writer.add_scalar("tuning%d/z" % self.tuned_cam, cam.z().item(), self.iter)
                     for v,l in zip([cam.FoVx(), cam.FoVy()], ["fovx", "fovy"]):
                         self.tb_writer.add_scalar("tuning%d/%s" % (self.tuned_cam, l), v, self.iter)
-                        self.tb_writer.add_scalar("tuning%d/%s_grad" % (self.tuned_cam,l), v._grad, self.iter)
+                    for v,l in zip([cam._FoVx, cam._FoVy], ["fovx", "fovy"]):
+                        if v._grad is not None:
+                            self.tb_writer.add_scalar("tuning%d/%s_grad" % (self.tuned_cam,l), v._grad, self.iter)
                     self.tb_writer.add_scalar("tuning%d/loss" % self.tuned_cam, Ll2, self.iter)
                 self.cam_optimizer.step()
                 self.cam_optimizer.zero_grad()
@@ -183,6 +198,18 @@ class CamTuner():
         self.tb_writer.add_scalar("tuning/tuned", -1, self.iter + 1)
         self.percam_trainings[self.tuned_cam] += self.iter - start_iter
         self.percam_improvements[self.tuned_cam] += max(0., psnr - psnr0)
+
+    def switch_one_to_abc(self):
+        cam = self.cams[self.tuned_cam]
+        gt_image = cam.original_image(self.bg).cuda()
+        render_pkg = render(cam, self.scene.gaussians, self.pipe, self.bg)
+        image, viewspace_point_tensor, visibility_filter, _ = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+        Ll2 = torch.mean((image-gt_image)**2)
+        Ll2.backward()
+        eigval = cam.to_abc(self.scene.gaussians.get_xyz[visibility_filter], screenspace_points_grad=viewspace_point_tensor.grad[visibility_filter])
+        if self.tuned_cam in self.tracked and self.tb_writer:
+            for l,v in zip(["a", "b", "c"], eigval):
+                self.tb_writer.add_scalar("tuning%d/eigval_%s" % (self.tuned_cam,l), v, self.iter)
 
     def save(self, iteration):
         if self.opt.tune_cams:

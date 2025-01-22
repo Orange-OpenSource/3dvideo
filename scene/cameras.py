@@ -109,28 +109,117 @@ class TrainedCamera(Camera):
                                             image_name, uid, trans, scale, data_device)
         w2c = self._world_view_transform.transpose(0, 1)
         self.world_view_q = matrix_to_quaternion(w2c[:3,:3]).requires_grad_(True)
-        self.world_view_t = w2c[:3,3].requires_grad_(True)
+        self.world_view_xy = w2c[:2,3].requires_grad_(True)
+        self._z = w2c[2,3].requires_grad_(True)
         self._FoVx = torch.tensor(FoVx, device=data_device).requires_grad_(True)
         self._FoVy = torch.tensor(FoVy, device=data_device).requires_grad_(True)
         self.is_trained = True
-        self.ema_loss = 0.
-        self.ema_loss_short = 0.
         self.improving = False
         self.score = 0.0
+        self._a = torch.tensor(0., device=data_device).requires_grad_(True)
+        self._b = torch.tensor(0., device=data_device).requires_grad_(True)
+        self._c = torch.tensor(0., device=data_device).requires_grad_(True)
+        self.abc_tuning = False
+        self._FoVx0 = 0.
+        self._FoVy0 = 0.
+        self._z0 = 0.
+        self.hessian_eigen_vectors = torch.zeros((3,3), device=data_device)
 
     def save_state(self):
         with torch.no_grad():
-            return self.world_view_q.clone(), self.world_view_t.clone(), self._FoVx.clone(), self._FoVy.clone()
+            return (self.world_view_q.clone(),
+                    self.world_view_xy.clone(),
+                    self._z.clone(),
+                    self._z0,
+                    self._FoVx.clone(),
+                    self._FoVx0,
+                    self._FoVy.clone(),
+                    self._FoVy0,
+                    self._a.clone(),
+                    self._b.clone(),
+                    self._c.clone(),
+                    self.abc_tuning)
 
     def load_state(self, state):
         with torch.no_grad():
             self.world_view_q.set_(state[0])
-            self.world_view_t.set_(state[1])
-            self._FoVx.set_(state[2])
-            self._FoVy.set_(state[3])
+            self.world_view_xy.set_(state[1])
+            self._z.set_(state[2])
+            self._z0 = state[3]
+            self._FoVx.set_(state[4])
+            self._FoVx0 = state[5]
+            self._FoVy.set_(state[6])
+            self._FoVy0 = state[7]
+            self._a.set_(state[8])
+            self._b.set_(state[9])
+            self._c.set_(state[10])
+            self.abc_tuning = state[11]
 
     def ndc2Pix(self, v, S):
         return ((v + 1.0) * S - 1.0) * 0.5
+
+    def eval_hessianeigenvectors(self, means3D, screenspace_points_grad):
+        assert (not self.abc_tuning)
+        means4 = torch.cat([means3D, torch.ones_like(means3D[:,:1])], dim=1)
+        p_hom = means4 @ self.get_full_proj_transform()
+        p_w = 1.0 / (p_hom[:,3] + 1.e-7)
+        p_proj = torch.stack([ p_hom[:,0] * p_w, p_hom[:,1] * p_w, p_hom[:,2] * p_w ], dim=-1) # (N,3)
+        point_image = torch.stack([ self.ndc2Pix(p_proj[:,0], self.image_width), self.ndc2Pix(p_proj[:,1], self.image_height) ], dim=-1)
+        uv = point_image
+        params = [self._z, self._FoVx, self._FoVy]
+        z_grad, fovx_grad, fovy_grad = torch.autograd.grad([uv], params, [screenspace_points_grad[:,:2]], create_graph=True)
+        d2L_dz2, d2L_dzdfovx, d2L_dzdfovy = torch.autograd.grad(z_grad, params, retain_graph=True)
+        d2L_dfovx_dz, d2L_dfovx2, d2L_dfovxdfovy = torch.autograd.grad(fovx_grad, params, retain_graph=True)
+        d2L_dfovy_dz, d2L_dfovydfovx, d2L_dfovy2 = torch.autograd.grad(fovy_grad, params)
+        hessian = torch.stack([torch.stack([d2L_dz2, d2L_dzdfovx, d2L_dzdfovy]),
+                               torch.stack([d2L_dfovx_dz, d2L_dfovx2, d2L_dfovxdfovy]),
+                               torch.stack([d2L_dfovy_dz, d2L_dfovydfovx, d2L_dfovy2])
+                             ])
+        eigval, eigvec = torch.linalg.eigh(hessian) # the eigen vectors are the columns of hessian_eigen_vectors
+        return eigval, eigvec
+
+    def to_abc(self, means3D, screenspace_points_grad):
+        if self.abc_tuning: # TODO: consider staying in abc mode, processing hessian on abc itself
+            self.to_zfovxfovy()
+        eigval, eigvec = self.eval_hessianeigenvectors(means3D, screenspace_points_grad)
+        self.hessian_eigen_vectors = eigvec
+        with torch.no_grad():
+            self._z0 = self._z.item()
+            self._FoVx0 = self._FoVx.item()
+            self._FoVy0 = self._FoVy.item()
+            self._a.zero_()
+            self._b.zero_()
+            self._c.zero_()
+        self.abc_tuning = True
+        return eigval
+
+    def abc(self):
+        return torch.stack([self._a, self._b, self._c])
+
+    def z(self):
+        if self.abc_tuning:
+            return self._z0 + torch.dot(self.hessian_eigen_vectors[0], self.abc())
+        else:
+            return self._z
+
+    def FoVx(self):
+        if self.abc_tuning:
+            return self._FoVx0 + torch.dot(self.hessian_eigen_vectors[1], self.abc())
+        else:
+            return self._FoVx
+
+    def FoVy(self):
+        if self.abc_tuning:
+            return self._FoVy0 + torch.dot(self.hessian_eigen_vectors[2], self.abc())
+        else:
+            return self._FoVy
+
+    def to_zfovxfovy(self):
+        with torch.no_grad():
+            self._z.set_(self.z())
+            self._FoVx.set_(self.FoVx())
+            self._FoVy.set_(self.FoVy())
+        self.abc_tuning = False
 
     def update_grads(self, means3D, screenspace_points_grad):
         means4 = torch.cat([means3D, torch.ones_like(means3D[:,:1])], dim=1)
@@ -139,18 +228,23 @@ class TrainedCamera(Camera):
         p_proj = torch.stack([ p_hom[:,0] * p_w, p_hom[:,1] * p_w, p_hom[:,2] * p_w ], dim=-1) # (N,3)
         point_image = torch.stack([ self.ndc2Pix(p_proj[:,0], self.image_width), self.ndc2Pix(p_proj[:,1], self.image_height) ], dim=-1)
         uv = point_image
-        params = [self.world_view_q, self.world_view_t, self._FoVx, self._FoVy]
-        grads = torch.autograd.grad([uv], params, [screenspace_points_grad[:,:2]])
+        params = [self.world_view_q, self.world_view_xy, self._z, self._FoVx, self._FoVy, self._a, self._b, self._c]
+        grads = torch.autograd.grad([uv], params, [screenspace_points_grad[:,:2]], allow_unused=True)
         with torch.no_grad():
             self.world_view_q._grad = grads[0]
-            self.world_view_t._grad = grads[1]
-            self._FoVx._grad = grads[2]
-            self._FoVy._grad = grads[3]
+            self.world_view_xy._grad = grads[1]
+            self._z._grad = grads[2]
+            self._FoVx._grad = grads[3]
+            self._FoVy._grad = grads[4]
+            self._a._grad = grads[5]
+            self._b._grad = grads[6]
+            self._c._grad = grads[7]
 
     def get_world_view_transform(self):
         matrix = torch.eye(4).to(self.world_view_q)
         matrix[:3,:3] = quaternion_to_matrix(self.world_view_q / self.world_view_q.norm())
-        matrix[:3,3] = self.world_view_t
+        matrix[:2,3] = self.world_view_xy
+        matrix[2,3] = self.z()
         return matrix.transpose(0,1)
 
 class MiniCam:
