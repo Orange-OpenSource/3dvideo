@@ -81,16 +81,17 @@ class CamTuner():
             self.cam_optimizer = None
 
     def init_list(self, iteration):
-        print("to abc params...")
-        for c in tqdm(range(len(self.cams))):
-            self.tuned_cam = c
-            if not self.cams[c].abc_tuning:
-                self.switch_one_to_abc()
         print("initializing the scores of %d cams..." % len(self.cams))
         for c in tqdm(range(len(self.cams))):
             self.tuned_cam = c
             self.cams[c].score = 0.0
             self.tune_one(min_rounds=2, max_rounds=2)
+        print("to abc params...")
+        for c in tqdm(range(len(self.cams))):
+            self.tuned_cam = c
+            self.draw_loss()
+            if not self.cams[c].abc_tuning:
+                self.switch_one_to_abc()
         if self.tb_writer:
             self.tb_writer.add_image("tuning/init_scores", tb_image([c.score for c in self.cams]), self.iter)
         self.last_init_iter = iteration
@@ -206,10 +207,39 @@ class CamTuner():
         image, viewspace_point_tensor, visibility_filter, _ = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         Ll2 = torch.mean((image-gt_image)**2)
         Ll2.backward()
+        cam.trace_hessianeigenvectors2d(self.scene.gaussians.get_xyz[visibility_filter], screenspace_points_grad=viewspace_point_tensor.grad[visibility_filter], idx=self.tuned_cam)
         eigval = cam.to_abc(self.scene.gaussians.get_xyz[visibility_filter], screenspace_points_grad=viewspace_point_tensor.grad[visibility_filter])
         if self.tuned_cam in self.tracked and self.tb_writer:
             for l,v in zip(["a", "b", "c"], eigval):
                 self.tb_writer.add_scalar("tuning%d/eigval_%s" % (self.tuned_cam,l), v, self.iter)
+
+    def draw_loss(self):
+        delta_z = torch.linspace(-0.001, 0.001, 11)
+        delta_fovx = delta_z
+        cam = self.cams[self.tuned_cam]
+        w2c = cam.get_world_view_transform().t().detach().cpu().numpy()
+        X, Y = torch.meshgrid(delta_z, delta_fovx, indexing="xy")
+        L = torch.zeros_like(X)
+        ZG = torch.zeros_like(X)
+        FG = torch.zeros_like(X)
+        from scene.cameras import TrainedCamera
+        import numpy as np
+        gt_image = cam.original_image(self.bg).cuda()
+        for i,dz in enumerate(delta_z):
+            for j,df in enumerate(delta_fovx):
+                T = w2c[:3,3] + np.array([0.,0.,X[i,j].item()])
+                R = w2c[:3,:3].T
+                idx = self.tuned_cam * len(delta_z) * len(delta_fovx) + i * len(delta_fovx) + j
+                mcam = TrainedCamera(idx, R, T, (cam.FoVx() + Y[i,j]).item(), cam.FoVy().item(), cam._original_image, cam._gt_alpha_mask, cam.image_name, idx)
+                render_pkg = render(mcam, self.scene.gaussians, self.pipe, self.bg)
+                image, viewspace_point_tensor, visibility_filter, _ = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+                Ll2 = torch.mean((image-gt_image)**2)
+                Ll2.backward()
+                mcam.update_grads(self.scene.gaussians.get_xyz[visibility_filter], screenspace_points_grad=viewspace_point_tensor.grad[visibility_filter])
+                L[i,j] = Ll2.item()
+                ZG[i,j] = mcam._z._grad.item()
+                FG[i,j] = mcam._FoVx._grad.item()
+        torch.save({"z": (X + cam.z().detach().cpu()), "fovx": (Y + cam.FoVx().detach().cpu()), "loss": L.detach().cpu(), "z_grad": ZG.detach().cpu(), "fovx_grad": FG.detach().cpu()}, '/home/omge7332/tmp/heatmap%d.pth' % self.tuned_cam)
 
     def save(self, iteration):
         if self.opt.tune_cams:

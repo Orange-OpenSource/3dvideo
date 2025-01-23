@@ -178,6 +178,27 @@ class TrainedCamera(Camera):
         eigval, eigvec = torch.linalg.eigh(hessian) # the eigen vectors are the columns of hessian_eigen_vectors
         return eigval, eigvec
 
+    def trace_hessianeigenvectors2d(self, means3D, screenspace_points_grad, idx):
+        assert (not self.abc_tuning)
+        means4 = torch.cat([means3D, torch.ones_like(means3D[:,:1])], dim=1)
+        p_hom = means4 @ self.get_full_proj_transform()
+        p_w = 1.0 / (p_hom[:,3] + 1.e-7)
+        p_proj = torch.stack([ p_hom[:,0] * p_w, p_hom[:,1] * p_w, p_hom[:,2] * p_w ], dim=-1) # (N,3)
+        point_image = torch.stack([ self.ndc2Pix(p_proj[:,0], self.image_width), self.ndc2Pix(p_proj[:,1], self.image_height) ], dim=-1)
+        uv = point_image
+        params = [self._z, self._FoVx, self._FoVy]
+        z_grad, fovx_grad, fovy_grad = torch.autograd.grad([uv], params, [screenspace_points_grad[:,:2]], create_graph=True)
+        d2L_dz2, d2L_dzdfovx, d2L_dzdfovy = torch.autograd.grad(z_grad, params, retain_graph=True)
+        d2L_dfovx_dz, d2L_dfovx2, d2L_dfovxdfovy = torch.autograd.grad(fovx_grad, params, retain_graph=True)
+        d2L_dfovy_dz, d2L_dfovydfovx, d2L_dfovy2 = torch.autograd.grad(fovy_grad, params)
+        hessian = torch.stack([torch.stack([d2L_dz2, d2L_dzdfovx, d2L_dzdfovy]),
+                               torch.stack([d2L_dfovx_dz, d2L_dfovx2, d2L_dfovxdfovy]),
+                               torch.stack([d2L_dfovy_dz, d2L_dfovydfovx, d2L_dfovy2])
+                             ])
+        # eigval, eigvec = torch.linalg.eigh(hessian[:2,:2]) # the eigen vectors are the columns of hessian_eigen_vectors
+        eigvec, eigval, _ = torch.linalg.svd(hessian[:2,:2])
+        torch.save({"eigval":eigval, "eigvec": eigvec, "z": self.z(), "fovx": self.FoVx()}, '/home/omge7332/tmp/eigcam%d.pth' % idx)
+
     def to_abc(self, means3D, screenspace_points_grad):
         if self.abc_tuning: # TODO: consider staying in abc mode, processing hessian on abc itself
             self.to_zfovxfovy()
