@@ -214,6 +214,18 @@ class TrainedCamera(Camera):
         self.abc_tuning = True
         return eigval
 
+    def to_abc2(self, eigvec, eigval):
+        self.hessian_eigen_vectors = eigvec.cuda()
+        with torch.no_grad():
+            self._z0 = self._z.item()
+            self._FoVx0 = self._FoVx.item()
+            self._FoVy0 = self._FoVy.item()
+            self._a.zero_()
+            self._b.zero_()
+            self._c.zero_()
+        self.abc_tuning = True
+        return eigval
+
     def abc(self):
         return torch.stack([self._a, self._b, self._c])
 
