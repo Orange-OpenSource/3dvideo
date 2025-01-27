@@ -83,6 +83,9 @@ class OptimizationParams(ParamGroup):
         self.cam_q_lr = 1.e-4
         self.cam_fov_lr = 1.e-5
         self.cam_abc_lr = 1.e-4
+        self.cam_eps = 1.e-8
+        self.cam_beta1 = 0.9
+        self.cam_beta2 = 0.99
         self.cam_ema_moment = 0.99
         self.cam_tuning_priority = 4 # cam tuning will happen (1+4)x more often than gaussian training
         self.position_lr_init = 0.00016

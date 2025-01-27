@@ -76,7 +76,7 @@ class CamTuner():
                  {"name": "cam_b", "lr": opt.cam_abc_lr, "params": [c._b for c in self.cams]},
                  {"name": "cam_c", "lr": opt.cam_abc_lr, "params": [c._c for c in self.cams]},
                  {"name": "cam_fov", "lr": opt.cam_fov_lr, "params": fov_params}]
-            self.cam_optimizer = Adam(l, betas=(0.9,0.99))
+            self.cam_optimizer = Adam(l, betas=(opt.cam_beta1, opt.cam_beta2), eps=opt.cam_eps)
         else:
             self.cam_optimizer = None
 
@@ -149,7 +149,7 @@ class CamTuner():
         saved_state = cam.save_state()
 
         for round in range(max_rounds): # number to repeat if score stays high enough
-            if round >= min_rounds and cam.score < self.thres:
+            if round >= min_rounds and cam.score < 0.1 * self.thres: # wait until far below threshold
                 break
             for s in range(self.steps):
                 render_pkg = render(cam, self.scene.gaussians, self.pipe, self.bg)
@@ -176,6 +176,9 @@ class CamTuner():
                         if v._grad is not None:
                             self.tb_writer.add_scalar("tuning%d/%s" % (self.tuned_cam, l), v, self.iter)
                             self.tb_writer.add_scalar("tuning%d/%s_grad" % (self.tuned_cam, l), v._grad, self.iter)
+                            if 'exp_avg' in self.cam_optimizer.state[v]:
+                                self.tb_writer.add_scalar("tuning%d/%s_exp_avg" % (self.tuned_cam, l), self.cam_optimizer.state[v]['exp_avg'], self.iter)
+                                self.tb_writer.add_scalar("tuning%d/%s_exp_avg_sq" % (self.tuned_cam, l), self.cam_optimizer.state[v]['exp_avg_sq'], self.iter)
                     if cam._z._grad is not None:
                         self.tb_writer.add_scalar("tuning%d/z_grad" % self.tuned_cam, cam._z._grad.item(), self.iter)
                     self.tb_writer.add_scalar("tuning%d/z" % self.tuned_cam, cam.z().item(), self.iter)
@@ -185,7 +188,11 @@ class CamTuner():
                         if v._grad is not None:
                             self.tb_writer.add_scalar("tuning%d/%s_grad" % (self.tuned_cam,l), v._grad, self.iter)
                     self.tb_writer.add_scalar("tuning%d/loss" % self.tuned_cam, Ll2, self.iter)
+                olds = cam._a.item(), cam._b.item(), cam._c.item()
                 self.cam_optimizer.step()
+                if self.tb_writer and self.tuned_cam in self.tracked:
+                    for l,v,old_v in zip(["a", "b", "c"], [cam._a, cam._b, cam._c], olds):
+                        self.tb_writer.add_scalar("tuning%d/%s_inc" % (self.tuned_cam, l), v - old_v, self.iter)
                 self.cam_optimizer.zero_grad()
                 if self.tb_writer and (s % 10 == 0 or s == self.steps - 1):
                     self.tb_writer.add_scalar("tuning/delta_psnr", psnr - psnr0, self.iter)
