@@ -86,12 +86,13 @@ class CamTuner():
             self.tuned_cam = c
             self.cams[c].score = 0.0
             self.tune_one(min_rounds=2, max_rounds=2)
-        print("to abc params...")
-        for c in tqdm(range(len(self.cams))):
-            self.tuned_cam = c
-            # self.draw_loss()
-            if not self.cams[c].abc_tuning:
-                self.switch_one_to_abc2()
+        if not self.opt.cam_no_abc:
+            print("to abc params...")
+            for c in tqdm(range(len(self.cams))):
+                self.tuned_cam = c
+                # self.draw_loss()
+                if not self.cams[c].abc_tuning:
+                    self.switch_one_to_abc2()
         if self.tb_writer:
             self.tb_writer.add_image("tuning/init_scores", tb_image([c.score for c in self.cams]), self.iter)
         self.last_init_iter = iteration
