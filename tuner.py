@@ -80,6 +80,12 @@ class CamTuner():
         else:
             self.cam_optimizer = None
 
+    def color_loss(self, image, gt_image):
+        if self.opt.cam_L1:
+            return torch.mean((image-gt_image).abs())
+        else:
+            return torch.mean((image-gt_image)**2)
+
     def init_list(self, iteration):
         print("initializing the scores of %d cams..." % len(self.cams))
         for c in tqdm(range(len(self.cams))):
@@ -156,13 +162,14 @@ class CamTuner():
                 render_pkg = render(cam, self.scene.gaussians, self.pipe, self.bg)
                 image, viewspace_point_tensor, visibility_filter, _ = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
                 Ll2 = torch.mean((image-gt_image)**2)
+                loss = self.color_loss(image, gt_image)
                 prev_psnr = psnr
                 psnr = (-10. * torch.log10(Ll2)).item()
                 delta_psnr = 0.0 if prev_psnr is None else psnr - prev_psnr
                 cam.score = cam.score * (1.0 - self.cam_score_beta) + delta_psnr * self.cam_score_beta
                 if s == 0 and round == 0:
                     psnr0 = psnr
-                Ll2.backward()
+                loss.backward()
                 cam.update_grads(self.scene.gaussians.get_xyz[visibility_filter], screenspace_points_grad=viewspace_point_tensor.grad[visibility_filter])
                 if os.path.exists(os.environ["HOME"] + "/tmp/tracked.json"):
                     j = json.load(open(os.environ["HOME"] + "/tmp/tracked.json"))
@@ -188,7 +195,7 @@ class CamTuner():
                     for v,l in zip([cam._FoVx, cam._FoVy], ["fovx", "fovy"]):
                         if v._grad is not None:
                             self.tb_writer.add_scalar("tuning%d/%s_grad" % (self.tuned_cam,l), v._grad, self.iter)
-                    self.tb_writer.add_scalar("tuning%d/loss" % self.tuned_cam, Ll2, self.iter)
+                    self.tb_writer.add_scalar("tuning%d/loss" % self.tuned_cam, loss, self.iter)
                 olds = cam._a.item(), cam._b.item(), cam._c.item()
                 self.cam_optimizer.step()
                 if self.tb_writer and self.tuned_cam in self.tracked:
@@ -217,8 +224,8 @@ class CamTuner():
         gt_image = cam.original_image(self.bg).cuda()
         render_pkg = render(cam, self.scene.gaussians, self.pipe, self.bg)
         image, viewspace_point_tensor, visibility_filter, _ = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
-        Ll2 = torch.mean((image-gt_image)**2)
-        Ll2.backward()
+        loss = self.color_loss(image, gt_image)
+        loss.backward()
         # cam.trace_hessianeigenvectors2d(self.scene.gaussians.get_xyz[visibility_filter], screenspace_points_grad=viewspace_point_tensor.grad[visibility_filter], idx=self.tuned_cam)
         eigval = cam.to_abc(self.scene.gaussians.get_xyz[visibility_filter], screenspace_points_grad=viewspace_point_tensor.grad[visibility_filter])
         if self.tuned_cam in self.tracked and self.tb_writer:
@@ -245,10 +252,10 @@ class CamTuner():
                 mcam = TrainedCamera(idx, R, T, (cam.FoVx() + Y[i,j]).item(), cam.FoVy().item(), cam._original_image, cam._gt_alpha_mask, cam.image_name, idx)
                 render_pkg = render(mcam, self.scene.gaussians, self.pipe, self.bg)
                 image, viewspace_point_tensor, visibility_filter, _ = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
-                Ll2 = torch.mean((image-gt_image)**2)
-                Ll2.backward()
+                loss = self.color_loss(image, gt_image)
+                loss.backward()
                 mcam.update_grads(self.scene.gaussians.get_xyz[visibility_filter], screenspace_points_grad=viewspace_point_tensor.grad[visibility_filter])
-                L[i,j] = Ll2.item()
+                L[i,j] = loss.item()
                 ZG[i,j] = mcam._z._grad.item()
                 FG[i,j] = mcam._FoVx._grad.item()
         torch.save({"z": (X + cam.z().detach().cpu()), "fovx": (Y + cam.FoVx().detach().cpu()), "loss": L.detach().cpu(), "z_grad": ZG.detach().cpu(), "fovx_grad": FG.detach().cpu()}, '/home/omge7332/tmp/heatmap%d.pth' % self.tuned_cam)
@@ -264,8 +271,8 @@ class CamTuner():
         render_pkg = render(mcam, self.scene.gaussians, self.pipe, self.bg)
         image, viewspace_point_tensor, visibility_filter, _ = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         gt_image = cam.original_image(self.bg).cuda()
-        Ll2 = torch.mean((image-gt_image)**2)
-        Ll2.backward()
+        loss = self.color_loss(image, gt_image)
+        loss.backward()
         mcam.update_grads(self.scene.gaussians.get_xyz[visibility_filter], screenspace_points_grad=viewspace_point_tensor.grad[visibility_filter])
         return mcam._z._grad.item(), mcam._FoVx._grad.item(), mcam._FoVy._grad.item()
 
