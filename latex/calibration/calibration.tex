@@ -1,0 +1,123 @@
+\documentclass{article}
+\usepackage[fleqn]{amsmath}
+\usepackage{bm}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\graphicspath{ {./images/} }
+\usepackage[title]{appendix}
+\usepackage{gensymb}
+\newcommand{\Rho}{\mathrm{P}}
+\title{Adam SLAM - the last mile of camera calibration with 3DGS}
+\author{Matthieu GENDRIN, Stéphane PATEUX, Théo LADUNE \\
+	Orange Innovation
+	}
+\setlength{\parindent}{0cm}
+
+\date{\today}
+% Hint: \title{what ever}, \author{who care} and \date{when ever} could stand 
+% before or after the \begin{document} command 
+% BUT the \maketitle command MUST come AFTER the \begin{document} command! 
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+3d gaussian splatting \cite{kerbl20233d} has been a major breakthrough in the domain of 3D novel view synthesis, reaching state of the art quality with an
+efficient, realtime rendering performance. The research community has been florishing since that publication, and some improvements have 
+been brought. For instance, MCMC \cite{kheradmand20243d} improved the psnr, Stop the pop \cite{radl2024stopthepop} solved some splatting 
+artifacts, and Mip splatting \cite{Yu_2024_CVPR} improved the antialising of the solution. The quality of the model improving, such 
+publications are often compared more and more precisely, often comparing psnr in fractions of dB.
+
+In such a context, the quality of the camera calibration is of major importance, each error of one pixel having an impact in the order of 
+magnitude of a dB psnr. It happens that the community working on the novel view synthesis generally considers the camera calibration as a 
+prerequisit, taking the camera poses and intrinsics as an input. The calibration is a field of research in itself, which is focussed on 
+the best balance between precision, robustness and compute efficiency. The state of the art is held by feature based algorithms,
+with COLMAP \cite{schonberger2018robust} as a reference, and many proposals to improve the tracks of features used in the same algorithm.
+Such solutions give a calibration suitable for novel view synthesis algorithms to converge. In some circumstances though, the calibration
+introduces some error, for example with low-textured scenes, or when features are very unevenly distributed throughout the scene. 
+The hard point about evaluating the quality of calibration is that we don't have a ground truth for real scenes. At the end of the day,
+the quality of the calibration is assessed by the quality of the novel view synthesis.
+
+Taking this into consideration, some publications train the pose of the camera based on the loss of the novel view synthesis itself, like 
+gsplatloc \cite{zeller2024gsplatloc} which generates a depthmap from a 3dgs model and compares it with a ground truth, or gsplat \cite{ye2024gsplat}
+which backpropagates on the pose of the camera during the 3dgs training. Similar to this last publication, we train a 3dgs model from
+a pre-existing calibration, and fine-tune this calibration based on the color loss of the novel view synthesis. Unlike gsplat,
+we focus some iterations of the training on calibration improvement, use L2 loss in these iterations which performs better than L1,
+train the focal length of the cameras on top of the pose, and introduce other changes that improve the final quality of the calibration,
+measured through the final psnr of the novel view synthesis.
+
+\section{Method}
+
+Though the main idea of this paper is basically to use backpropagation to train camera parameters from the color loss, we
+will develop some more details about the appropriate way to perform this training. First, we will show in \ref{backprop} how we simplified
+the chain-rule of backpropagation for implementation ease. Then, we will explain in \ref{L2} the choice of the color loss we chosed.
+
+\subsection{Backpropagation} \label{backprop}
+The whole rendering is kept as is, except that the camera parameters are trained, based on the color loss.
+Noting $p_j$ one parameter of camera $j$, the derivatives of the color loss $\mathcal{L}$ wrt $p$ are:
+\begin{align}
+	\label{eq:1}
+	\frac{\partial \mathcal{L}}{\partial p_j} &= \sum_{i} \frac{\partial \mathcal{L}}{\partial uv_i} \frac{\partial uv_i}{\partial p_j} + \frac{\partial \mathcal{L}}{\partial cov2d_i} \frac{\partial cov2d_i}{\partial p_j}
+\end{align}
+With $uv_i$ the coordinates of the center and $cov2d_i$ the projection of the covariance matrix of the gaussian $i$ on image plan of the camera $j$.
+
+We neglect the impact of $p_j$ on $cov2d_i$ in \eqref{eq:1}, leading to:
+\begin{align}
+	\label{eq:2}
+	\frac{\partial \mathcal{L}}{\partial p_j} &= \sum_{i} \frac{\partial \mathcal{L}}{\partial uv_i} \frac{\partial uv_i}{\partial p_j}
+\end{align}
+
+\subsection{Choice of the loss} \label{L2}
+While the choice of L1 loss has very good results in training 3dgs model, we found that L2 (MSE) error is more
+suitable to train the camera parameters. This can be interpreted as an effect of the lower importance of small
+errors in L2 loss, thus making noise throughout the whole image negligeable before actual difference due to the 
+calibration error.
+
+<METTRE LE TABLEAU L1/L2>
+
+This difference in loss implies to dedicate some iterations to camera parameters training. This split between
+model training iterations and camera training iterations is also consistent with other elements discussed below.
+
+\subsection{Interleaved training schedule}
+The model training uses the cameras calibration as an input, and vice versa. Concurrent training of interdependent
+parameters are common in machine learning, and gsplat \cite{ye2024gsplat} trains camera parameters and the model in parallel.
+We propose a different schedule, by phases, to benefit from the low noise in camera parameters learning. Indeed,
+since the number of camera parameters is small (we train 9 parameters per camera: one quaternion, one 3D position, 
+two fields of view), and the loss is an average over one million pixels, the stochastic of the gradient descent is
+negligeable, as illustrated in Figure \ref{fig:fovx}.
+We proceed in a loop with M iterations of model training, followed by the training of the camera parameters, one camera
+after another. One camera is trained at least 100 steps, and a progress score is evaluated so that the training of the
+camera is interrupted when the progress score reach the minimum threshold t.
+
+The progress score is an exponential moving average of the psnr progress:
+\begin{align}
+	score_{n+1} &= score_n * (1 - \beta) + \beta (psnr_{n+1} - psnr_n) 
+\end{align}
+In our experiments, we use $\beta = 0.02, M = 3000, t = 0.0002$.
+
+\begin{figure}
+	\caption{fovx gradient during 150 iterations training one camera.}
+	\includegraphics{fovx-gradient.png}
+	\label{fig:fovx}
+\end{figure}
+
+\section{Results}
+
+\section{Conclusion}
+
+Considering the precision of camera calibration as a matter of importance for the comparison of publications of
+novel view synthesis, we propose a solution to fine tune this calibration. The camera calibration uses a 
+3dgs model which is trained in parallel in an interleaved training schedule.
+The fine tuning may be long and its suitability depends on the criticity of training time, but for calibration
+of reference scenes, such as \cite{barron2022mip}, the stake of novel view quality is the most important.
+
+
+
+\begin{appendices}
+    
+\end{appendices}
+
+\bibliographystyle{plain}
+\bibliography{calibration}
+
+\end{document}
