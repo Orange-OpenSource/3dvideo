@@ -45,21 +45,23 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         gaussians.max_radii2D = torch.zeros_like(gaussians._xyz[:,0])
 
     gaussians.training_setup(opt)
-    if os.path.exists(scene.model_path + "/deadline-chkpnt.pth"):
-        print("Deadline checkpoint detected, start from it", scene.model_path + "/deadline-chkpnt.pth")
-        checkpoint = scene.model_path + "/deadline-chkpnt.pth"
-    if checkpoint:
-        (model_params, first_iter) = torch.load(checkpoint)
-        gaussians.restore(model_params, opt)
-
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
     report_bg = torch.tensor([255.,121.,0.], device="cuda")/255. if opt.random_background and not dataset.white_background else background # don't update at each iteration, to get comparable PSNR
 
+    cam_tuner = CamTuner(scene, background, dataset, opt, pipe, tb_writer, first_iter, testing_iterations, saving_iterations, start_datetime)
+
+    if os.path.exists(scene.model_path + "/deadline-chkpnt.pth"):
+        print("Deadline checkpoint detected, start from it", scene.model_path + "/deadline-chkpnt.pth")
+        checkpoint = scene.model_path + "/deadline-chkpnt.pth"
+    if checkpoint:
+        (model_params, tuner_params, first_iter) = torch.load(checkpoint, weights_only=False)
+        gaussians.restore(model_params, opt)
+        cam_tuner.restore(tuner_params)
+        print("Restoring at iteration", first_iter)
+
     iter_start = torch.cuda.Event(enable_timing = True)
     iter_end = torch.cuda.Event(enable_timing = True)
-
-    cam_tuner = CamTuner(scene, background, dataset, opt, pipe, tb_writer, first_iter, testing_iterations, saving_iterations)
 
     viewpoint_stack = None
     ema_loss_for_log = 0.0
@@ -86,16 +88,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         gaussians.update_learning_rate(iteration)
 
-        # let a chance to cam_tuner to tune one cam
-        cam_tuner.tune(iteration)
-        if iteration > opt.iterations:
-            cam_tuner.tune_after_training()
-            return
-
+        # cam_tuner tunes cams if needed, returns False if training should be skipped
+        if not cam_tuner.tune(iteration):
+            continue
         if datetime.now().timestamp() - start_datetime > opt.deadline:
             # save as (iteration - 1) because iteration needs to be replayed
-            print("\n[ITER {}] Saving Checkpoint for timeout".format(iteration - 1))
-            torch.save((gaussians.capture(), iteration - 1), scene.model_path + "/deadline-chkpnt.pth")
+            print("\n[ITER {}] Saving deadline checkpoint for timeout".format(iteration - 1))
+            torch.save((gaussians.capture(), cam_tuner.capture(), iteration - 1), scene.model_path + "/deadline-chkpnt.pth")
             sys.exit(42)
 
         # Every 1000 its we increase the levels of SH up to a maximum degree
@@ -162,7 +161,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
-                torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
+                torch.save((gaussians.capture(), cam_tuner.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
     # loop finished, get rid of deadline-chkpnt.pth (which we don't want to be erroneously used if job is launched again):
     if os.path.exists(scene.model_path + "/deadline-chkpnt.pth"):
         os.remove(scene.model_path + "/deadline-chkpnt.pth")
@@ -246,7 +245,7 @@ if __name__ == "__main__":
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
     parser.add_argument("--test_iterations", nargs="+", type=int, default=[1000] + [3000 * i for i in range(100)])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 30_000] + [50000 * i for i in range(10)])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[6_000, 7_000, 30_000] + [50000 * i for i in range(10)])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default = None)

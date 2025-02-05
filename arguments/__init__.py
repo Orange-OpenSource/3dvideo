@@ -78,7 +78,9 @@ class OptimizationParams(ParamGroup):
         self.deadline = 3_500_000 # should be 3500 on cluster, to meet one hour deadline
         self.tune_cams = False
         self.tune_until_iter = 30_000
-        self.tune_from_iter = 7000
+        self.tune_from_iter = 5999 # just before opacity_reset
+        self.tune_interval = 3000
+        self.cam_thres = 0.01
         self.cam_t_lr = 1.e-4
         self.cam_q_lr = 1.e-4
         self.cam_fov_lr = 1.e-5
