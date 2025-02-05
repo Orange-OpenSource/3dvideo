@@ -22,6 +22,7 @@ from tqdm import tqdm
 from utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
+from datetime import datetime
 try:
     from torch.utils.tensorboard import SummaryWriter
     TENSORBOARD_FOUND = True
@@ -31,9 +32,13 @@ except ImportError:
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
+    start_datetime = datetime.now().timestamp()
     gaussians = GaussianModel(dataset.sh_degree)
     scene = Scene(dataset, gaussians)
     gaussians.training_setup(opt)
+    if os.path.exists(scene.model_path + "/deadline-chkpnt.pth"):
+        print("Deadline checkpoint detected, start from it", scene.model_path + "/deadline-chkpnt.pth")
+        checkpoint = scene.model_path + "/deadline-chkpnt.pth"
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
         gaussians.restore(model_params, opt)
@@ -67,6 +72,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         iter_start.record()
 
         gaussians.update_learning_rate(iteration)
+
+        if datetime.now().timestamp() - start_datetime > opt.deadline:
+            # save as (iteration - 1) because iteration needs to be replayed
+            print("\n[ITER {}] Saving Checkpoint for timeout".format(iteration - 1))
+            torch.save((gaussians.capture(), iteration - 1), scene.model_path + "/deadline-chkpnt.pth")
+            sys.exit(42)
 
         # Every 1000 its we increase the levels of SH up to a maximum degree
         if iteration % 1000 == 0:
@@ -127,6 +138,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
+    # loop finished, get rid of deadline-chkpnt.pth (which we don't want to be erroneously used if job is launched again):
+    if os.path.exists(scene.model_path + "/deadline-chkpnt.pth"):
+        os.remove(scene.model_path + "/deadline-chkpnt.pth")
 
 def prepare_output_and_logger(args):    
     if not args.model_path:
