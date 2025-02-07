@@ -89,13 +89,14 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         gaussians.update_learning_rate(iteration)
 
         # cam_tuner tunes cams if needed, returns False if training should be skipped
-        if not cam_tuner.tune(iteration):
-            continue
+        should_train = cam_tuner.tune(iteration)
         if datetime.now().timestamp() - start_datetime > opt.deadline:
             # save as (iteration - 1) because iteration needs to be replayed
             print("\n[ITER {}] Saving deadline checkpoint for timeout".format(iteration - 1))
             torch.save((gaussians.capture(), cam_tuner.capture(), iteration - 1), scene.model_path + "/deadline-chkpnt.pth")
             sys.exit(42)
+        if not should_train:
+            continue
 
         # Every 1000 its we increase the levels of SH up to a maximum degree
         if iteration % 1000 == 0:
