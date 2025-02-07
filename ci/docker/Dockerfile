@@ -66,5 +66,4 @@ RUN cd /gaussian-splatting-deps/diff-gaussian-rasterization\
 # Now, python package are compiled, we can copy the whole repo
 COPY ./ /gaussian-splatting
 
-WORKDIR ["/gaussian-splatting"]
 CMD  ["/bin/bash"]
