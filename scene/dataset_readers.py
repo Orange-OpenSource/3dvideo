@@ -23,6 +23,8 @@ from plyfile import PlyData, PlyElement
 from utils.sh_utils import SH2RGB
 from scene.gaussian_model import BasicPointCloud
 from utils.camera_utils import CameraInfo
+from scene.cameras import matrix_to_quaternion
+import torch
 
 class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud
@@ -239,6 +241,32 @@ def camerasToTransforms(cam_infos, path):
         i += 1
     os.makedirs(os.path.dirname(path), exist_ok=True)
     return json.dump(contents, open(path, 'w'), indent=2)
+
+def camerasToColmap(cam_infos, root_path):
+    img_path = os.path.join(root_path, "images")
+    os.makedirs(img_path, exist_ok=True)
+    from PIL import Image
+    folder_path = os.path.join(root_path, "sparse", "0")
+    os.makedirs(folder_path, exist_ok=True)
+    cam_file = os.path.join(folder_path, "cameras.txt")
+    if os.path.exists(cam_file):
+        os.rename(cam_file, cam_file+".sav")
+    with open(cam_file, "w") as out:
+        # 1 PINHOLE 1600 1037 1186.0108045370664 1188.6026057333354 800 518.5
+        out.write("\n".join(["%d PINHOLE %d %d %f %f %f %f" % (i+1, c.width, c.height, fov2focal(c.FovX) * c.width / 2, fov2focal(c.FovY) * c.height / 2, c.width / 2, c.height / 2) for i,c in enumerate(cam_infos)]))
+    img_file = os.path.join(folder_path, "images.txt")
+    if os.path.exists(img_file):
+        os.rename(img_file, img_file+".sav")
+    with open(img_file, "w") as out:
+        for i,cam_info in enumerate(cam_infos):
+            npimg = (cam_info.image.cpu().permute(1,2,0).numpy() * 255).astype(np.uint8)
+            if not cam_info.image_name.split(".")[-1].lower() == "png":
+                npimg = npimg[:,:,:3]
+            Image.fromarray(npimg).save(os.path.join(img_path, cam_info.image_name.split("/")[-1]))
+            t = cam_info.T
+            q = matrix_to_quaternion(torch.tensor(cam_info.R.T)).numpy()
+            # 194 0.87789737416535651 0.17656105410483855 -0.39021410310223553 -0.21413861946663995 -0.18595263308466015 -0.29445680205269809 2.1699432280663196 1 _DSC8873.JPG
+            out.write("%d %f %f %f %f %f %f %f %d %s\n\n" % ((i+1,) + tuple(q) + tuple(t) + (i+1, cam_info.image_name.split("/")[-1])))
 
 def readNerfSyntheticInfo(path, eval, extension=".png", llffhold=8):
     print("Reading Training Transforms")

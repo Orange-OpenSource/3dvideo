@@ -13,7 +13,7 @@ import os
 import random
 import json
 from utils.system_utils import searchForMaxIteration
-from scene.dataset_readers import sceneLoadTypeCallbacks, camerasToTransforms
+from scene.dataset_readers import sceneLoadTypeCallbacks, camerasToTransforms, camerasToColmap
 from scene.gaussian_model import GaussianModel
 from arguments import ModelParams
 from utils.camera_utils import cameraList_from_camInfos, camera_to_JSON, cameraList_to_camInfos
@@ -98,6 +98,8 @@ class Scene:
         if self.getTestCameras():
             camerasToTransforms(cameraList_to_camInfos(self.getTestCameras()), os.path.join(cam_path, "transforms_test.json"))
         camerasToTransforms(cameraList_to_camInfos(self.getTrainCameras()), os.path.join(cam_path, "transforms_train.json"))
+        all_cams = sorted(self.getTrainCameras() + self.getTestCameras(), key=lambda c: c.image_name)
+        camerasToColmap(cameraList_to_camInfos(all_cams), cam_path)
 
     def getTrainCameras(self, scale=1.0):
         return self.train_cameras[scale]
