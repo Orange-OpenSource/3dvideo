@@ -6,6 +6,7 @@
 \graphicspath{ {./images/} }
 \usepackage[title]{appendix}
 \usepackage{gensymb}
+\usepackage[table]{xcolor}
 \newcommand{\Rho}{\mathrm{P}}
 \title{Adam SLAM - the last mile of camera calibration with 3DGS}
 \author{Matthieu GENDRIN, Stéphane PATEUX, Théo LADUNE \\
@@ -46,7 +47,7 @@ we focus some iterations of the training on calibration improvement, use L2 loss
 train the focal length of the cameras on top of the pose, and introduce other changes that improve the final quality of the calibration,
 measured through the final psnr of the novel view synthesis.
 
-\section{Method}
+\section{Method} \label{method}
 
 Though the main idea of this paper is basically to use backpropagation to train camera parameters from the color loss, we
 will develop some more details about the appropriate way to perform this training. First, we will show in \ref{backprop} how we simplified
@@ -81,13 +82,10 @@ model training iterations and camera training iterations is also consistent with
 \subsection{Interleaved training schedule}
 The model training uses the cameras calibration as an input, and vice versa. Concurrent training of interdependent
 parameters are common in machine learning, and gsplat \cite{ye2024gsplat} trains camera parameters and the model in parallel.
-We propose a different schedule, by phases, to benefit from the low noise in camera parameters learning. Indeed,
-since the number of camera parameters is small (we train 9 parameters per camera: one quaternion, one 3D position, 
-two fields of view), and the loss is an average over one million pixels, the stochastic of the gradient descent is
-negligeable, as illustrated in Figure \ref{fig:fovx}.
+We propose a different schedule, by phase, with a prioritization scheme to allow more compute time on cameras that need it.
 We proceed in a loop with M iterations of model training, followed by the training of the camera parameters, one camera
 after another. One camera is trained at least 100 steps, and a progress score is evaluated so that the training of the
-camera is interrupted when the progress score reach the minimum threshold t.
+camera is interrupted when the progress score reaches a minimum threshold t.
 
 The progress score is an exponential moving average of the psnr progress:
 \begin{align}
@@ -95,13 +93,37 @@ The progress score is an exponential moving average of the psnr progress:
 \end{align}
 In our experiments, we use $\beta = 0.02, M = 3000, t = 0.0002$.
 
-\begin{figure}
-	\caption{fovx gradient during 150 iterations training one camera.}
-	\includegraphics{fovx-gradient.png}
-	\label{fig:fovx}
-\end{figure}
-
 \section{Results}
+
+Our results are processed in two steps: we first train the camera positions and model together, as described in \ref{method},
+then we re-train the model, render the test images and process metrics with the original code of \cite{kerbl20233d}.
+
+\begin{table}[h]
+	\begin{center}
+	{\rowcolors{2}{white}{lightgray}
+	\begin{tabular}{|p{3cm}|c|c|}
+				\hline
+				scene & 3dgs calib & ours \\
+				\hline
+				mip360 bicycle & 25.61 &  \\
+				mip360 bonsai & 32.32 &  \\
+				mip360 counter & 29.11 &  \\
+				mip360 garden & 27.77 &  \\
+				mip360 kitchen & 31.55 &  \\
+				mip360 room & 31.72 &  \\
+				mip360 stump & 26.90 &  \\
+				nerfsynth lego & 36.06 &  \\
+				T\&T Train &  &  \\
+				T\&T Truck &  &  \\
+				DB DrJohnson &  &  \\
+				DB Playroom &  &  \\
+				\hline
+			\end{tabular}
+	}
+	\caption{PSNR on the ref scenes as defined by \cite{kerbl20233d}}
+	\end{center}
+\end{table}
+
 
 \section{Conclusion}
 
