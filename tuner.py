@@ -174,15 +174,10 @@ class CamTuner():
         psnr0 = None
         psnr = None
 
-        self.tb_writer.add_scalar("tuning/delta_psnr", -0.1, self.iter-1)
-        self.tb_writer.add_scalar("tuning/tuned", -1, self.iter-1)
-        self.tb_writer.add_scalar("tuning/tuned", cam_id, self.iter)
-        start_iter = self.iter
-
         saved_state = cam.save_state()
-
+        start_iter = self.iter
         for round in range(max_rounds): # number to repeat if score stays high enough
-            if round >= min_rounds and cam.score < self.thres: # wait until far below threshold
+            if round >= min_rounds and cam.score < self.thres: # wait until below threshold
                 break
             for s in range(self.steps):
                 render_pkg = render(cam, self.scene.gaussians, self.pipe, self.bg)
@@ -197,53 +192,36 @@ class CamTuner():
                     psnr0 = psnr
                 loss.backward()
                 cam.update_grads(self.scene.gaussians.get_xyz[visibility_filter], screenspace_points_grad=viewspace_point_tensor.grad[visibility_filter])
-                if os.path.exists(os.environ["HOME"] + "/tmp/tracked.json"):
-                    j = json.load(open(os.environ["HOME"] + "/tmp/tracked.json"))
-                    if type(j) == list and len(j) > 0 and type(j[0]) == int:
-                        self.tracked = j
-                if self.tb_writer and cam_id in self.tracked:
-                    for i,l in enumerate(["x", "y"]):
-                        grad = 0. if cam.world_view_xy._grad is None else cam.world_view_xy._grad[i]
-                        self.tb_writer.add_scalar("tuning%d/%s_grad" % (cam_id, l), grad, self.iter)
-                        self.tb_writer.add_scalar("tuning%d/%s" % (cam_id, l), cam.world_view_xy[i].item(), self.iter)
-                    for l,v in zip(["a", "b", "c"], [cam._a, cam._b, cam._c]):
-                        if v._grad is not None:
-                            self.tb_writer.add_scalar("tuning%d/%s" % (cam_id, l), v, self.iter)
-                            self.tb_writer.add_scalar("tuning%d/%s_grad" % (cam_id, l), v._grad, self.iter)
-                            if 'exp_avg' in self.cam_optimizer.state[v]:
-                                self.tb_writer.add_scalar("tuning%d/%s_exp_avg" % (cam_id, l), self.cam_optimizer.state[v]['exp_avg'], self.iter)
-                                self.tb_writer.add_scalar("tuning%d/%s_exp_avg_sq" % (cam_id, l), self.cam_optimizer.state[v]['exp_avg_sq'], self.iter)
-                    if cam._z._grad is not None:
-                        self.tb_writer.add_scalar("tuning%d/z_grad" % cam_id, cam._z._grad.item(), self.iter)
-                    self.tb_writer.add_scalar("tuning%d/z" % cam_id, cam.z().item(), self.iter)
-                    for v,l in zip([cam.FoVx(), cam.FoVy()], ["fovx", "fovy"]):
-                        self.tb_writer.add_scalar("tuning%d/%s" % (cam_id, l), v, self.iter)
-                    for v,l in zip([cam._FoVx, cam._FoVy], ["fovx", "fovy"]):
-                        if v._grad is not None:
-                            self.tb_writer.add_scalar("tuning%d/%s_grad" % (cam_id,l), v._grad, self.iter)
-                    self.tb_writer.add_scalar("tuning%d/loss" % cam_id, loss, self.iter)
-                olds = cam._a.item(), cam._b.item(), cam._c.item()
+                self.tracking(cam_id, psnr)
                 self.cam_optimizer.step()
-                if self.tb_writer and cam_id in self.tracked:
-                    for l,v,old_v in zip(["a", "b", "c"], [cam._a, cam._b, cam._c], olds):
-                        self.tb_writer.add_scalar("tuning%d/%s_inc" % (cam_id, l), v - old_v, self.iter)
                 self.cam_optimizer.zero_grad()
-                if self.tb_writer and (s % 10 == 0 or s == self.steps - 1):
-                    self.tb_writer.add_scalar("tuning/delta_psnr", psnr - psnr0, self.iter)
                 self.iter += 1
-            if self.tb_writer and cam_id in self.tracked:
-                self.tb_writer.add_scalar("tuning%d/score" % cam_id, cam.score, self.iter)
         if psnr - psnr0 < 0.:
             # should not happen: come back to previous state
             cam.score = 0.
             cam.load_state(saved_state)
-            if self.tb_writer and cam_id in self.tracked:
-                self.tb_writer.add_scalar("tuning%d/score" % cam_id, cam.score, self.iter)
-        self.tb_writer.add_scalar("tuning/delta_psnr", -0.1, self.iter + 1)
-        self.tb_writer.add_scalar("tuning/tuned", cam_id, self.iter)
-        self.tb_writer.add_scalar("tuning/tuned", -1, self.iter + 1)
         self.percam_trainings[cam_id] += self.iter - start_iter
         self.percam_improvements[cam_id] += max(0., psnr - psnr0)
+
+    def tracking(self, cam_id, psnr):
+        if not self.tb_writer:
+            return
+        # update list of tracked cams if needed
+        if os.path.exists(os.environ["HOME"] + "/tmp/tracked.json"):
+            js = json.load(open(os.environ["HOME"] + "/tmp/tracked.json"))
+            if type(js) == list and len(js) > 0 and type(js[0]) == int:
+                self.tracked = js
+        self.tb_writer.add_scalar("tuning/tuned", cam_id, self.iter)
+        if cam_id in self.tracked:
+            cam = self.cams[cam_id]
+            for i,(l,v,g) in enumerate(zip(["x", "y", "z", "fovx", "fovy", "a", "b", "c"],
+                                           [cam.world_view_xy[0], cam.world_view_xy[1], cam.z(), cam.FoVx(), cam.FoVy(), cam._a, cam._b, cam._c],
+                                           [cam.world_view_xy._grad[0], cam.world_view_xy._grad[1], cam._z._grad, cam._FoVx._grad, cam._FoVy._grad, cam._a._grad, cam._b._grad, cam._c._grad])):
+                g = g if g else 0.
+                self.tb_writer.add_scalar("tuning%d/%s" % (cam_id, l), v, self.iter)
+                self.tb_writer.add_scalar("tuning%d/%s_grad" % (cam_id, l), g, self.iter)
+            self.tb_writer.add_scalar("tuning%d/psnr" % cam_id, psnr, self.iter)
+            self.tb_writer.add_scalar("tuning%d/score" % cam_id, cam.score, self.iter)
 
     def switch_one_to_abc(self, cam_id):
         cam = self.cams[cam_id]
