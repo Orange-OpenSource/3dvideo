@@ -1,15 +1,49 @@
-\documentclass{article}
+%%%% patron de format latex pour soumettre un article long
+%%%% à ORASIS .
+%%%% sans garanties. 
+%%%% deux colonnes pas de numérotation et 10 points
+
+%%%% Pour \LaTeXe
+\documentclass[a4paper,twoside,french]{article}
+\usepackage{orasis}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+% \usepackage[french]{babel}
+\usepackage{times}
+\usepackage{authblk}
 \usepackage[fleqn]{amsmath}
-\usepackage{bm}
-\usepackage{amssymb}
+\usepackage[table]{xcolor}
 \usepackage{graphicx}
 \graphicspath{ {./graphics/} }
-\usepackage[title]{appendix}
-\usepackage{gensymb}
-\usepackage[table]{xcolor}
-\usepackage{authblk}
-\newcommand{\Rho}{\mathrm{P}}
-\title{Adam SLAM - the last mile of camera calibration with 3DGS}
+
+%%%% Pour \LaTeXe sans babel
+%%%% \documentclass[a4paper,twoside]{article}
+%%% \usepackage{orasis}
+%%%% \usepackage{french}
+%%%% \usepackage{times}
+
+%%%% Pour \LaTeX remplacer les trois ligne précédentes par les deux
+%%%% suivantes
+%%%%\documentstyle[a4,french]{article}
+%%%%\input{orasis}
+
+\begin{document}
+%%%%%Pas de date
+\date{}
+%%%%% Titre gras 14 points
+\title{\Large\bf Adam SLAM - the last mile of camera calibration with 3DGS}
+%%%%% Si auteur unique
+%\author{L. Auteur \\
+%%  Son institut \\
+%%  Son addresse \\
+%%  Son email}
+%%%% pour deux auteurs
+% \author{\begin{tabular}[t]{c@{\extracolsep{8em}}c}
+%%%% pour trois auteurs
+%%%%\author{\begin{tabular}[t]{c@{\extracolsep{6em}}c@{\extracolsep{6em}}c}
+%%%% pour quatre auteurs
+%%%%\author{\begin{tabular}[t]{c@{\extracolsep{4em}}c@{\extracolsep{4em}}c@{\extracolsep{4em}}c}
+%%%%pour plus débrouillez-vous !
 \author[1,2]{Matthieu GENDRIN}
 \author[1]{Stéphane PATEUX}
 \author[2]{Xiaoran JIANG}
@@ -17,15 +51,39 @@
 \author[2]{Luce MORIN}
 \affil[1]{Orange Innovation}
 \affil[2]{INSA}
-\setlength{\parindent}{0cm}
-
-\date{\today}
-% Hint: \title{what ever}, \author{who care} and \date{when ever} could stand 
-% before or after the \begin{document} command 
-% BUT the \maketitle command MUST come AFTER the \begin{document} command! 
-\begin{document}
-
+%Mon adresse complète \\
 \maketitle
+% Mon adresse électronique\\
+%%%%  Pas de numérotation sur la page de titre
+%\thispagestyle{empty}
+\subsection*{Résumé}
+{\em
+La qualité de la calibration des caméras est d'une importance majeure pour évaluer les progrès dans la synthèse de nouvelles vues,
+une erreur de 1 pixel sur la calibration ayant un impact significatif sur la qualité de reconstruction.
+Etant donné qu'il n'y a pas de vérité terrain pour les scènes réelles, la qualité de la calibration est évaluée par la qualité de
+la synthèse de nouvelles vues.
+Cet article propose d'utiliser la génération de nouvelles vues à partir d'un modèle 3DGS \cite{kerbl20233d} pour affiner la
+calibration par rétropropagation de la loss de couleur.
+L'affinage de la calibration à lui seul apporte une amélioration moyenne de 0,4 dB PSNR sur le jeu de données utilisé comme référence
+par 3DGS \cite{kerbl20233d}.
+Ce processus d'affinage peut être jugé trop long en fonction de la criticité du temps d'entraînement, mais pour la calibration de
+scènes de référence, telles que Mip-nerf 360 \cite{barron2022mip}, l'enjeu de la qualité des nouvelles vues est primordial.
+}
+\subsection*{Mots Clef}
+Synthèse de vue, calibration, apprentissage.
+
+\subsection*{Abstract}
+{\em
+The quality of the camera calibration is of major importance for evaluating progresses in novel view synthesis,
+as a 1-pixel error on the calibration has a significant impact on the reconstruction quality.
+While there is no ground truth for real scenes, the quality of the calibration is assessed by the quality of the novel view synthesis.
+This paper proposes to use a 3DGS \cite{kerbl20233d} model to fine tune calibration by backpropagation of novel view color loss with
+respect to the cameras parameters. The new calibration alone brings an average improvement of 0.4 dB PSNR on the dataset used as reference by 3DGS \cite{kerbl20233d}.
+The fine tuning may be long and its suitability depends on the criticity of training time, but for calibration
+of reference scenes, such as \cite{barron2022mip}, the stake of novel view quality is the most important.
+}
+\subsection*{Keywords}
+Example, model, template.
 
 \section{Introduction}
 3d gaussian splatting \cite{kerbl20233d} has been a major breakthrough in the domain of 3D novel view synthesis, reaching state-of-the-art quality with an
@@ -33,7 +91,7 @@ efficient and realtime rendering performance. The research community has been fl
 For instance, MCMC \cite{kheradmand20243d} improvements range from 0.4 dB and 0.7 dB of PSNR.
 
 In such a context, the quality of the camera calibration is of major importance, as a 1-pixel error on the calibration has a significant
-impact on the reonstruction quality, sometimes up to 1 dB PSNR. The calibration is a field of research in itself, which doest not focus on quality but seeks 
+impact on the reconstruction quality, sometimes up to 1 dB PSNR. The calibration is a field of research in itself, which does not focus on quality but seeks 
 the best balance between precision, robustness and computational efficiency. The state of the art is held by feature based algorithms,
 with COLMAP \cite{schonberger2018robust} as a reference, and many proposals to improve the features tracks used in that algorithm.
 Such solutions give a calibration suitable for novel view synthesis algorithms to converge. However, the calibration might introduce errors
@@ -48,7 +106,7 @@ a pre-existing calibration, and fine-tune this calibration based on the color lo
 we focus some iterations of the training on calibration improvement, replace L1 loss by a L2 loss in these iterations which performs better than L1,
 and train the focal length of the cameras alongside the pose. We also propose a reparameterization of the camera extrinsics and intrinsics
 for a more efficient training. These changes improve the final quality of the calibration, reaching an average 0.4 dB PSNR improvement
-on the reference dataset of \cite{kerbl20233d}.
+on the reference dataset of 3DGS \cite{kerbl20233d}.
 
 \section{Method} \label{method}
 
@@ -59,7 +117,7 @@ Then the training schedule between model and camera fine-tuning is the subject o
 Finally, section \ref{abc} proposes a reparameterization of the camera model for a more performant training with Adam optimizer.
 
 \subsection{Backpropagation} \label{backprop}
-The whole rendering is kept identical to \cite{kerbl20233d}, except that the camera parameters are trained based on the color loss.
+The whole rendering is kept identical to 3DGS \cite{kerbl20233d}, except that the camera parameters are trained based on the color loss.
 We note the camera parameters $x_c,y_c,z_c,q,\phi_x,\phi_y$ where $x_c,y_c,z_c$ and $q$ are respectively the translation and rotation (as a quaternion) of the
 world-to-camera pose, and $\phi_x,\phi_y$ are the fields of view along $u,v$ axis.
 Noting $p_j$ one parameter of camera $j$ listed above, the derivatives of the color loss $\mathcal{L}$ with respect to $p$ are:
@@ -103,14 +161,21 @@ We proceed in a loop with $M$ iterations of 3DGS model training, followed by the
 after another. One camera is trained for at least 100 steps and maximum 1000 steps, a progress score being evaluated so that the training of the
 camera is interrupted when the progress score reaches a minimum threshold $t$.
 
-The progress score is an exponential moving average of the PSNR progress:
+The progress score $s$ is an exponential moving average of the PSNR progress:
 \begin{align}
-	score_{n+1} &= score_n * (1 - \beta) + \beta (psnr_{n+1} - psnr_n) 
+	s_{n+1} &= s_n (1 - \beta) + \beta (psnr_{n+1} - psnr_n) 
 \end{align}
 In our experiments, we use $\beta = 0.02, M = 3000, t = 0.0002$ and initialize $score_0 = 0$.
 
 This enables us to save training iterations on cameras whose training does not improve the PSNR. In our 
 experiments, this leads to 20\% savings in cameras training time.
+
+\begin{figure}
+  \includegraphics[width=\linewidth]{delta-psnr-extract.png}
+  \caption{Tracking of the PSNR improvement during the first phase of cameras fine-tuning. Each increasing subgraph concerns one camera.
+  One can see that the duration of training depends on the improvement pace. Y axis is the PSNR improvement of the current camera, x axis
+  is the iteration.}
+\end{figure}
 
 \subsection{Reparameterization} \label{abc}
 Consider the pinhole projection of the center of one gaussian whose position relative to the camera is $x,y,z$:
@@ -150,7 +215,9 @@ $(z_c,\phi_x,\phi_y)$ and on points around it $(z_c \pm \epsilon, \phi_x \pm \ep
 
 Our experiments are processed in two steps: we first train the camera positions and model together, as described in \ref{method},
 then we re-train the model, render the test images and process metrics with the original code of \cite{kerbl20233d}.
-The results are listed in Table \ref{table:results}.
+The results are listed in Table \ref{table:results}. 
+Table \ref{table:n_vertices} gives the number of gaussians of the 3DGS \cite{kerbl20233d} for the same scenes.
+The fine-tuned calibration enables generally a better PSNR with less gaussians.
 
 \begin{table}[h]
 	\begin{center}
@@ -169,35 +236,80 @@ The results are listed in Table \ref{table:results}.
 			T\&T Train & 22.12 & \textbf{22.61} \\
 			T\&T Truck & 25.84 & \textbf{26.18} \\
 			DB DrJohnson & 29.11 & \textbf{30.12} \\
-				DB Playroom & 29.96 & \textbf{30.77} \\
-				\textbf{Average} & \textbf{28.36} & \textbf{28.79} \\
-				\hline
+			DB Playroom & 29.96 & \textbf{30.77} \\
+			\hline
+			Average & 28.36 & \textbf{28.79} \\
+			\hline
 			\end{tabular}
 			}
-			\caption{PSNR on the reference scenes as defined by \cite{kerbl20233d}.
+			\caption{PSNR on the reference scenes as defined by 3DGS \cite{kerbl20233d}.
 			Column "dataset calibration" lists results of training using the Colmap calibration provided with the datasets.
-			Column "ours" lists results of training with the exact same code but using calibration fine-tuned by our algorithm.}
+			Column "ours" lists results of training with the exact same code but our calibration.}
 			\label{table:results}
 		\end{center}
 	\end{table}
 	
-	On some images, one can see the slight calibration error of the Colmap input, and the result of the fine-tuning.
-	Figure \ref{img:quali} shows a slight misalignment on Colmap \cite{schonberger2018robust}, visible on the wheel
-	of the bicycle, which is corrected by camera fine-tuning.
+  \begin{table}[h]
+    \begin{center}
+      {\rowcolors{2}{white}{lightgray}
+      \begin{tabular}{|p{2.5cm}|c|c|}
+        \hline
+        scene & \shortstack{dataset calibration \\ gaussians [M]} & \shortstack{ours \\ gaussians [M]} \\
+        \hline
+        mip360 bicycle & 5.79 & \textbf{4.72} \\
+        mip360 bonsai & 1.25 & \textbf{1.14} \\
+        mip360 counter & 1.17 & \textbf{1.13} \\
+        mip360 garden & 5.09 & \textbf{3.63} \\
+        mip360 kitchen & 1.74 & \textbf{1.54} \\
+        mip360 room & 1.49 & \textbf{1.38} \\
+        mip360 stump & 4.66 & \textbf{4.26} \\
+        T\&T Train & \textbf{1.01} & 1.13 \\
+        T\&T Truck & 2.31 & \textbf{2.03} \\
+        DB DrJohnson & \textbf{3.31} & 3.34 \\
+        DB Playroom & 2.31 & \textbf{1.96} \\
+        \hline
+        Average & 2.35 & \textbf{2.06} \\
+        \hline
+        \end{tabular}
+        }
+        \caption{Number of gaussians (in millions) on the reference scenes as defined by 3DGS \cite{kerbl20233d}.
+        Column "dataset calibration" lists results of training using the Colmap calibration provided with the datasets.
+        Column "ours" lists results of training with the exact same code but our calibration.}
+        \label{table:n_vertices}
+      \end{center}
+    \end{table}
+    
+  On some images, one can see the slight calibration error of the Colmap input, and the result of the fine-tuning.
+	Figure \ref{img:quali1} shows a slight misalignment on Colmap \cite{schonberger2018robust}, visible on the wheel
+	of the bicycle \cite{barron2022mip}, which is corrected by camera fine-tuning.
+  Figure \ref{img:quali2} shows another example on DrJohnson \cite{HPPFDB18} where we have used RAFT \cite{DBLP:journals/corr/abs-2003-12039}
+  motion flow to help visualize the improvement between the calibration given with the datasets (ref) and the fine-tuned
+  calibration (ours). Figure \ref{img:quali3} displays the motion histogram, in pixels.
 	
-	\begin{figure}
-		\includegraphics[width=6cm]{bicycle-ref2}
-	\includegraphics[width=6cm]{bicycle-calib2}
-	\caption{Reference (left) vs ours (right)}
-	\label{img:quali}
+  \begin{figure}
+		\includegraphics{bicycle-ref2}
+	\includegraphics{bicycle-calib2}
+	\caption{Reference (top) vs ours (bottom) on bicycle view.}
+	\label{img:quali1}
+\end{figure}
+
+\begin{figure}
+  \includegraphics[width=8cm]{drjohnson-flow-img.png}
+\caption{Reference (left) vs ours (right) on DrJohnson view. The bottom row shows the motion flow estimated with RAFT \cite{DBLP:journals/corr/abs-2003-12039}}
+\label{img:quali2}
+\end{figure}
+
+\begin{figure}
+  \includegraphics[width=8cm]{drjohnson-flow-hist.png}
+\caption{Reference (blue) vs ours (orange) motion flow histogram on DrJohnson view. Motion is in pixels.}
+\label{img:quali3}
 \end{figure}
 
 \subsection{Ablations}
 
-The table \ref{table:ablation} gives the PSNR obtained by the same process as ours, but with one of the aspects missing.
-The impact on PSNR is listed in the table \ref{table:ablation}.
+Table \ref{table:ablation} gives the PSNR obtained by the same process as ours, but with one of the aspects missing.
 \begin{itemize}
-	\item w/o abc does not use reparameterization. Note that this is generally less performant, but not always.
+	\item w/o abc does not use reparameterization.
 	\item w/o fov does not train ($\phi_x, \phi_y$). Note that this implies not to use reparameterization neither.
 	\item L1 uses L1 loss instead of L2, for camera parameters training.
 \end{itemize}	
@@ -205,25 +317,29 @@ The impact on PSNR is listed in the table \ref{table:ablation}.
 \begin{table}[h]
 	\begin{center}
 	{\rowcolors{2}{white}{lightgray}
-	\begin{tabular}{|p{3cm}|c|c|c|c|}
+	\begin{tabular}{|p{2cm}|c|c|c|c|}
 				\hline
-				scene & \shortstack{w/o abc \\ PSNR [dB]} & \shortstack{w/o fov \\ PSNR [dB]} & \shortstack{L1 \\ PSNR [dB]} & \shortstack{full \\ PSNR [dB]} \\
+				scene & w/o abc & w/o fov & L1 & full \\
 				\hline
-				mip360 bicycle & 25.81 & 25.74 & 25.82 & \textbf{26.34} \\
-				mip360 bonsai & 32.31 & 32.15 & 32.41 & \textbf{32.72} \\
-				mip360 counter & 29.04 & 29.09 & 29.13 & \textbf{29.26} \\
-				mip360 garden & 27.70 & 27.50 & 27.72 & \textbf{28.32} \\
-				mip360 kitchen & 31.12 & 31.07 & 30.71 & \textbf{31.14} \\
-				mip360 room & 31.75 & 31.77 & 31.80 & \textbf{31.94} \\
-				mip360 stump & 26.72 & 26.60 & 26.73 & \textbf{27.28} \\
-				T\&T Train & 22.47 & 22.31 & 22.54 & \textbf{22.61} \\
-				T\&T Truck & 26.13 & 26.05 & 26.11 & \textbf{26.18} \\
-				DB DrJohnson & 29.93 & 29.55 & 29.81 & \textbf{30.12} \\
-				DB Playroom & 30.61 & 30.36 & 30.45 & \textbf{30.77} \\
-				\hline
+				bicycle & 25.81 & 25.74 & 25.82 & \textbf{26.34} \\
+				bonsai & 32.31 & 32.15 & 32.41 & \textbf{32.72} \\
+				counter & 29.04 & 29.09 & 29.13 & \textbf{29.26} \\
+				garden & 27.70 & 27.50 & 27.72 & \textbf{28.32} \\
+				kitchen & 31.12 & 31.07 & 30.71 & \textbf{31.14} \\
+				room & 31.75 & 31.77 & 31.80 & \textbf{31.94} \\
+				stump & 26.72 & 26.60 & 26.73 & \textbf{27.28} \\
+				Train & 22.47 & 22.31 & 22.54 & \textbf{22.61} \\
+				Truck & 26.13 & 26.05 & 26.11 & \textbf{26.18} \\
+				DrJohnson & 29.93 & 29.55 & 29.81 & \textbf{30.12} \\
+				Playroom & 30.61 & 30.36 & 30.45 & \textbf{30.77} \\
+        \hline
+        Average & 28.51 & 28.38 & 28.48 & \textbf{28.79} \\
+        \hline
 			\end{tabular}
 	}
-	\caption{Ablation: PSNR with some of the solution missing.}
+	\caption{Ablation: PSNR [dB] with some of the solution missing. Scenes bicycle, bonsai, counter, garden, kitchen, room and stump
+  are from Mip-nerf 360 \cite{barron2022mip}, Train and Truck are from Tanks and temples \cite{knapitsch2017tanks}, DrJohnson and
+  Playroom are from Deep Blending \cite{HPPFDB18}.}
 	\label{table:ablation}
 	\end{center}
 \end{table}
@@ -235,10 +351,11 @@ novel view synthesis, we propose a solution to fine tune this calibration. The c
 3DGS model which is trained in parallel in an interleaved training schedule.
 The new calibration alone brings an average improvement of 0.4 dB PSNR on the dataset used as reference by 3DGS \cite{kerbl20233d}.
 The fine tuning may be long and its suitability depends on the criticity of training time, but for calibration
-of reference scenes, such as \cite{barron2022mip}, the stake of novel view quality is the most important.
-
-
+of reference scenes, such as Mip-nerf 360 \cite{barron2022mip}, the stake of novel view quality is the most important.
+\clearpage
 \bibliographystyle{plain}
 \bibliography{calibration}
 
 \end{document}
+
+
