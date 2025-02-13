@@ -82,48 +82,52 @@ class CamTuner():
             self.cam_optimizer = None
 
     def capture(self):
-        return (
-            [c.world_view_q for c in self.cams],
-            [c.world_view_xy for c in self.cams],
-            [c._z for c in self.cams],
-            [c._z0 for c in self.cams],
-            [c._FoVx for c in self.cams],
-            [c._FoVx0 for c in self.cams],
-            [c._FoVy for c in self.cams],
-            [c._FoVy0 for c in self.cams],
-            [c._a for c in self.cams],
-            [c._b for c in self.cams],
-            [c._c for c in self.cams],
-            [c.abc_tuning for c in self.cams],
-            [c.hessian_eigen_vectors for c in self.cams],
-            self.cam_optimizer.state_dict(),
-            self.percam_trainings,
-            self.percam_improvements,
-            self.next_tuned_cam,
-            self.iter
-        )
+        if self.opt.tune_cams:
+            return (
+                [c.world_view_q for c in self.cams],
+                [c.world_view_xy for c in self.cams],
+                [c._z for c in self.cams],
+                [c._z0 for c in self.cams],
+                [c._FoVx for c in self.cams],
+                [c._FoVx0 for c in self.cams],
+                [c._FoVy for c in self.cams],
+                [c._FoVy0 for c in self.cams],
+                [c._a for c in self.cams],
+                [c._b for c in self.cams],
+                [c._c for c in self.cams],
+                [c.abc_tuning for c in self.cams],
+                [c.hessian_eigen_vectors for c in self.cams],
+                self.cam_optimizer.state_dict(),
+                self.percam_trainings,
+                self.percam_improvements,
+                self.next_tuned_cam,
+                self.iter
+            )
+        else:
+            return ()
 
     def restore(self, model_args):
-        for cam,q,xy,z,z0,fovx,fovx0,fovy,fovy0,a,b,c,abc_tuning,eigv in zip(self.cams,*model_args[:13]):
-            cam.world_view_q = q
-            cam.world_view_xy = xy
-            cam._z = z
-            cam._z0 = z0
-            cam._FoVx = fovx
-            cam._FoVx0 = fovx0
-            cam._FoVy = fovy
-            cam._FoVy0 = fovy0
-            cam._a = a
-            cam._b = b
-            cam._c = c
-            cam.abc_tuning = abc_tuning
-            cam.hessian_eigen_vectors = eigv
-        self.training_setup()
-        self.cam_optimizer.load_state_dict(model_args[13])
-        (self.percam_trainings,
-        self.percam_improvements,
-        self.next_tuned_cam,
-        self.iter) = model_args[14:]
+        if self.opt.tune_cams:
+            for cam,q,xy,z,z0,fovx,fovx0,fovy,fovy0,a,b,c,abc_tuning,eigv in zip(self.cams,*model_args[:13]):
+                cam.world_view_q = q
+                cam.world_view_xy = xy
+                cam._z = z
+                cam._z0 = z0
+                cam._FoVx = fovx
+                cam._FoVx0 = fovx0
+                cam._FoVy = fovy
+                cam._FoVy0 = fovy0
+                cam._a = a
+                cam._b = b
+                cam._c = c
+                cam.abc_tuning = abc_tuning
+                cam.hessian_eigen_vectors = eigv
+            self.training_setup()
+            self.cam_optimizer.load_state_dict(model_args[13])
+            (self.percam_trainings,
+            self.percam_improvements,
+            self.next_tuned_cam,
+            self.iter) = model_args[14:]
 
     def color_loss(self, image, gt_image):
         if self.opt.cam_L1:
