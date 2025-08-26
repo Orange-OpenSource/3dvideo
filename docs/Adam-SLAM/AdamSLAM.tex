@@ -49,8 +49,8 @@
 \author[2]{Xiaoran JIANG}
 \author[1]{Théo LADUNE}
 \author[2]{Luce MORIN}
-\affil[1]{Orange Innovation}
-\affil[2]{INSA}
+\affil[1]{Orange Innovation, France, {\fontfamily{qcr}\selectfont\small firstname.lastname@orange.com}}
+\affil[2]{Univ Rennes, INSA Rennes, CNRS, IETR (UMR 6164), France, {\fontfamily{qcr}\selectfont\small firstname.lastname@insa-rennes.fr}}
 %Mon adresse complète \\
 \maketitle
 % Mon adresse électronique\\
@@ -88,16 +88,19 @@ Example, model, template.
 \section{Introduction}
 3d gaussian splatting \cite{kerbl20233d} has been a major breakthrough in the domain of 3D novel view synthesis, reaching state-of-the-art quality with an
 efficient and realtime rendering performance. The research community has been florishing since, offering continuous but modest improvements.
-For instance, MCMC \cite{kheradmand20243d} improvements range from 0.4 dB and 0.7 dB of PSNR.
+For instance, MCMC \cite{kheradmand20243d} improvements range from 0.4 dB and 0.7 dB of PSNR (Peak Signal to Noise Ratio, a reference
+quality metric in novel view synthesis).
 
 In such a context, the quality of the camera calibration is of major importance, as a 1-pixel error on the calibration has a significant
 impact on the reconstruction quality, sometimes up to 1 dB PSNR. The calibration is a field of research in itself, which does not focus on quality but seeks 
 the best balance between precision, robustness and computational efficiency. The state of the art is held by feature based algorithms,
-with COLMAP \cite{schonberger2018robust} as a reference, and many proposals to improve the features tracks used in that algorithm.
+with COLMAP \cite{schonberger2018robust} as a reference, and many proposals to improve the features tracks used in that algorithm (see e.g. \cite{lindenberger2021pixel}).
 Such solutions give a calibration suitable for novel view synthesis algorithms to converge. However, the calibration might introduce errors
 in some circumstances, e.g. low-textured scenes, or with uneven features distribution. 
-The hard point about evaluating the quality of calibration is that there is no ground truth for real scenes. As such, the quality of the 
-calibration is assessed by the quality of the novel view synthesis.
+The hard point about evaluating the quality of calibration is that there is no ground truth for real scenes. As such, the quality of the calibration is assessed
+by the quality of the novel view synthesis. Some publications leverage amortized learned neural networks, although
+mainly to improve processing performance. DUSt3R \cite{wang2024dust3r} for example claims to avoid the cumbersome estimate of camera parameters,
+but does not claim better final quality.
 
 Taking this into consideration, previous works propose to train the pose of the cameras based on the loss of the novel view synthesis itself, like 
 gsplatloc \cite{zeller2024gsplatloc} which generates a depthmap from a 3DGS model and compares it with a ground truth, or gsplat \cite{ye2024gsplat}
@@ -141,34 +144,51 @@ Changing these parameters will have no impact on the transformation of the covar
 to the relative referential, and small impact on the projection to the image plan.
 
 \subsection{Choice of the loss} \label{L2}
-While the choice of L1 loss achieves competitive results in training gaussian model, we found empirically that L2 (MSE) error is more
-suited to train the camera parameters. This can be interpreted as an effect of the lower importance of small
-errors in L2 loss, thus making 3DGS reonstruction errors throughout the whole image negligeable before the actual
-difference due to the calibration error.
-Our experiments shows that L1 can lead the system to diverge, ending with trained cameras parameters worse than
-the input ones.
+While the choice of L1 loss (MAE: Mean Absolute Error)
+achieves competitive results in training gaussian model, we
+found empirically that L2 error (MSE: Mean Square Error)
+is more suited to train the camera parameters. The choice
+of the appropriate loss is a trade-off between the convergence
+performance of L2 and the robustness to outliers
+offered by L1. On a total of a few tens to few hundreds
+of cameras, a mis-calibrated camera may not be negligible
+for the training of the gaussians it sees. This explains
+the choice of L1 for 3DGS \cite{kerbl20233d}. On the contrary, fine-tuning
+the calibration of one camera based on the millions of gaussians
+that compose the 3D model is less subject to outliers,
+thus giving an advantage to the L2 loss. In practice, our
+experiments show that L1 can lead the system to diverge,
+some scenes ending up with trained cameras parameters
+worse than the input ones. \\
+Using different losses for model training and camera calibration
+implies to dedicate some iterations to camera parameters
+training. The results are more precise and reliable,
+at the cost of an extended training duration. Though processing
+performance is not our main focus, we propose a
+training schedule in the next section to mitigate this problem.
 
-This difference in loss implies to dedicate some iterations to camera parameters training. This split between
-model training iterations and camera training iterations extends the total duration of training but enable
-more precise and reliable results.
 
 \subsection{Training schedule} \label{schedule}
 The 3DGS model training uses the cameras calibration as an input, and vice versa. Concurrent training of interdependent
 parameters are common in machine learning, and gsplat \cite{ye2024gsplat} trains both the camera parameters and the 3DGS
 model in parallel.
-We propose a different schedule, by phase, with a prioritization scheme to allow more compute time on cameras that need it.
-We proceed in a loop with $M$ iterations of 3DGS model training, followed by the training of all the cameras parameters, one camera
-after another. One camera is trained for at least 100 steps and maximum 1000 steps, a progress score being evaluated so that the training of the
-camera is interrupted when the progress score reaches a minimum threshold $t$.
+We propose a different schedule, by phase, with an early stopping mechanism to save compute time on cameras which do not 
+benefit from fine-tuning. Specifically, we proceed in a loop with $M$ iterations of 3DGS model training, followed by the training of all the cameras parameters, one camera
+after another. One camera is trained for at least 100 steps and maximum 1000 steps, a progress score being evaluated at every step and
+the training of the camera is interrupted when the progress score reaches a minimum threshold $t$.
 
-The progress score $s$ is an exponential moving average of the PSNR progress:
+The progress score $s$ is an exponential moving average (EMA) of the PSNR progress:
 \begin{align}
-	s_{n+1} &= s_n (1 - \beta) + \beta (psnr_{n+1} - psnr_n) 
+	s_{n+1} &= s_n (1 - \beta) + \beta (PSNR_{n+1} - PSNR_n) 
 \end{align}
-In our experiments, we use $\beta = 0.02, M = 3000, t = 0.0002$ and initialize $score_0 = 0$.
-
-This enables us to save training iterations on cameras whose training does not improve the PSNR. In our 
-experiments, this leads to 20\% savings in cameras training time.
+In our experiments, we initialize the score with $s_0 = 0$ and use $\beta = \frac{1}{50}$. 
+This ensures that after the first 100 steps the EMA is a good approximation of the average progress.
+Letting $M = 3000$ model training steps between cameras
+fine-tuning is the natural pace of 3DGS \cite{kerbl20233d} training, as it
+is the default interval between opacity reset. We experimentally found that the threshold $t = 0.0002$ was a good
+trade-off between training duration and final quality.\\
+This schedule enables us to save training iterations on cameras whose training does not improve the PSNR.
+In our experiments, this leads to 20\% savings in cameras training time.
 
 \begin{figure}
   \includegraphics[width=\linewidth]{delta-psnr-extract.png}
@@ -185,25 +205,30 @@ Consider the pinhole projection of the center of one gaussian whose position rel
 \end{align}
 With $f_x,f_y$ the focal lengths of the camera, along $u,v$ axis.
 We can see from eq. \ref{eq:uv} that any modification of the camera parameters that keeps $(f_x / z, f_y / z)$ constant will have no
-impact of $(u,v)$. In a degenerate scene with all gaussians at the same $z$, it would not be possible to disentangle the parameters.
-Fortunately, the distribution is such that this case never happens, but $f_x, f_y$ and $z$ are still highly correlated.
+impact of $(u,v)$. If all gaussians had the same $z$, it would not be possible to disentangle the parameters.
+Though this case never arises, $f_x, f_y$ and $z$ are still highly correlated.
 This correlation is related to the similarity between getting closer to the scene and zooming in with the camera. Note that in
 3DGS \cite{kerbl20233d}, the focal $f_x, f_y$ parameters are replaced by the field of view $\phi_x,\phi_y$.
 
 To help training the model, the parameters $(z_c, \phi_x, \phi_y)$ of a camera are replaced by $(a, b, c)$.
 One reparameterization is to choose $(a, b, c)$ as the coordinates in the referential defined by the eigen vectors of
-the Hessian matrix of $\mathcal{L}(z_c,\phi_x,\phi_y)$. Calling $\mathcal{E}$ this matrix, we have:
+the Hessian matrix $\mathcal{H}$ of $\mathcal{L}(z_c,\phi_x,\phi_y)$. Calling $\mathcal{E}$ this matrix, we have:
 \begin{align}
 	\label{eq:abc}
-	\begin{bmatrix}z_c\\\phi_x\\\phi_y\end{bmatrix} = \begin{bmatrix}z_{c}^0\\\phi_x^0\\\phi_y^0\end{bmatrix} + \begin{bmatrix}\mathcal{E}\end{bmatrix} \begin{bmatrix}a\\b\\c\end{bmatrix} \\
+	\begin{bmatrix}z_c\\\phi_x\\\phi_y\end{bmatrix} = \begin{bmatrix}z_{c}^0\\\phi_x^0\\\phi_y^0\end{bmatrix} + \begin{bmatrix}\mathcal{E}\end{bmatrix} \begin{bmatrix}a\\b\\c\end{bmatrix}
 \end{align}
-With highly correlated parameters, the eigen values of the hessian matrix are of very different values, which leads to parameters
-$(a,b,c)$ having an impact of different orders of magnitude on the loss. Explicitely giving the disentangled parameters to the Adam optimizer
-will enables better convergence.
 
-Indeed, since Adam normalizes the gradient by the average norm of the precedent gradients, a reparameterization is not neutral.
-Giving new parameters to Adam, the step applied by the optimizer to $a$ will be more or less the same as 
-the step applied to $b$ or $c$, even though its gradient is smaller.
+The rational behind this reparameterization is that in the neighborhood of the local minimum, the gradient of the
+loss is approximated by $\frac{\partial\mathcal{L}}{\partial\theta} \approx \mathcal{H}\theta$.
+By definition, in referential given by the Hessian eigen vectors, the Hessian matrix is diagonal, thus the derivative with respect to
+one parameter is independent from the other parameters: $\frac{\partial\mathcal{L}}{\partial\theta_i} \approx \lambda_i\theta_i$
+(with $\lambda_i$ the $i - th$ eigen value).
+The Adam optimizer \cite{kingma2014adam} uses momentum, which is a way to accumulate 
+a velocity vector in directions of persistent loss reduction
+\cite{sutskever2013importance}. In the directions of low curvature, the loss gradient
+tends to persist across iterations and be amplified by momentum accumulation. This enables efficient convergence
+for parameters of low impact (small eigen values of the Hessian), that would otherwise be highly disturbed by high
+impact parameters.
 
 In practice, the first optim phase is done with the standard $(z_c,\phi_x,\phi_y)$ parameters, then the values of $(z_{c}^0,\phi_x^0,\phi_y^0)$ are set,
 the hessian is evaluated, $(a,b,c)$ are initiated at $(0,0,0)$ and the rest of the optimization process is done with $(x_c,y_c,q,a,b,c)$ parameters.
@@ -218,8 +243,10 @@ then we re-train the model, render the test images and process metrics with the 
 The results are listed in Table \ref{table:results}. 
 Table \ref{table:n_vertices} gives the number of gaussians of the 3DGS \cite{kerbl20233d} for the same scenes.
 The fine-tuned calibration enables generally a better PSNR with less gaussians.
+The few images with worse PSNR are points of views shared by so few cameras that the reconstruction is not reliable. Cf Figure \ref{img:quali4}.
 
 \begin{table}[h]
+  \small
 	\begin{center}
 		{\rowcolors{2}{white}{lightgray}
 		\begin{tabular}{|p{3cm}|c|c|}
@@ -230,7 +257,7 @@ The fine-tuned calibration enables generally a better PSNR with less gaussians.
 			mip360 bonsai & 32.32 & \textbf{32.72} \\
 			mip360 counter & 29.11 & \textbf{29.26} \\
 			mip360 garden & 27.77 & \textbf{28.32} \\
-			mip360 kitchen & \textbf{31.55} & 31.14 \\
+			mip360 kitchen & \textbf{31.55} & 31.50 \\
 			mip360 room & 31.72 & \textbf{31.94} \\
 			mip360 stump & 26.90 & \textbf{27.28} \\
 			T\&T Train & 22.12 & \textbf{22.61} \\
@@ -250,6 +277,7 @@ The fine-tuned calibration enables generally a better PSNR with less gaussians.
 	\end{table}
 	
   \begin{table}[h]
+    \small
     \begin{center}
       {\rowcolors{2}{white}{lightgray}
       \begin{tabular}{|p{2.5cm}|c|c|}
@@ -286,21 +314,21 @@ The fine-tuned calibration enables generally a better PSNR with less gaussians.
   motion flow to help visualize the improvement between the calibration given with the datasets (ref) and the fine-tuned
   calibration (ours). Figure \ref{img:quali3} displays the motion histogram, in pixels.
 	
-  \begin{figure}
-		\includegraphics{bicycle-ref2}
-	\includegraphics{bicycle-calib2}
+  \begin{figure}[h]
+	\includegraphics[width=8cm]{bicycle-ref2.png}
+	\includegraphics[width=8cm]{bicycle-calib2.png}
 	\caption{Reference (top) vs ours (bottom) on bicycle view.}
 	\label{img:quali1}
 \end{figure}
 
-\begin{figure}
-  \includegraphics[width=8cm]{drjohnson-flow-img.png}
-\caption{Reference (left) vs ours (right) on DrJohnson view. The bottom row shows the motion flow estimated with RAFT \cite{DBLP:journals/corr/abs-2003-12039}}
+\begin{figure}[h]
+  \includegraphics[width=8cm,height=4.6cm]{drjohnson-flow-img.png}
+\caption{Reference (left) vs ours (right) on DrJohnson view. Bottom: motion flow estimated with RAFT \cite{DBLP:journals/corr/abs-2003-12039}}
 \label{img:quali2}
 \end{figure}
 
 \begin{figure}
-  \includegraphics[width=8cm]{drjohnson-flow-hist.png}
+  \includegraphics[width=7cm,height=3.4cm]{drjohnson-flow-hist.png}
 \caption{Reference (blue) vs ours (orange) motion flow histogram on DrJohnson view. Motion is in pixels.}
 \label{img:quali3}
 \end{figure}
@@ -308,38 +336,41 @@ The fine-tuned calibration enables generally a better PSNR with less gaussians.
 \subsection{Ablations}
 
 Table \ref{table:ablation} gives the PSNR obtained by the same process as ours, but with one of the aspects missing.
+\vbox{%
 \begin{itemize}
 	\item w/o abc does not use reparameterization.
 	\item w/o fov does not train ($\phi_x, \phi_y$). Note that this implies not to use reparameterization neither.
 	\item L1 uses L1 loss instead of L2, for camera parameters training.
-\end{itemize}	
+	\item once runs only on phase of cameras fine-tuning, instead of one phase every 3000 3DGS steps
+\end{itemize}}
 
 \begin{table}[h]
+  \small
 	\begin{center}
-	{\rowcolors{2}{white}{lightgray}
-	\begin{tabular}{|p{2cm}|c|c|c|c|}
+    {\rowcolors{2}{white}{lightgray}
+    \begin{tabular}{|p{1.2cm}|c|c|c|c|c|}
+      \hline
+				scene  & w/o abc & w/o fov & L1 & once & full \\
 				\hline
-				scene & w/o abc & w/o fov & L1 & full \\
-				\hline
-				bicycle & 25.81 & 25.74 & 25.82 & \textbf{26.34} \\
-				bonsai & 32.31 & 32.15 & 32.41 & \textbf{32.72} \\
-				counter & 29.04 & 29.09 & 29.13 & \textbf{29.26} \\
-				garden & 27.70 & 27.50 & 27.72 & \textbf{28.32} \\
-				kitchen & 31.12 & 31.07 & 30.71 & \textbf{31.14} \\
-				room & 31.75 & 31.77 & 31.80 & \textbf{31.94} \\
-				stump & 26.72 & 26.60 & 26.73 & \textbf{27.28} \\
-				Train & 22.47 & 22.31 & 22.54 & \textbf{22.61} \\
-				Truck & 26.13 & 26.05 & 26.11 & \textbf{26.18} \\
-				DrJohnson & 29.93 & 29.55 & 29.81 & \textbf{30.12} \\
-				Playroom & 30.61 & 30.36 & 30.45 & \textbf{30.77} \\
+				bicycle & 25.81 & 25.74 & 25.82 & 25.62 & \textbf{26.34} \\
+				bonsai & 32.31 & 32.15 & 32.41 & 32.32 & \textbf{32.72} \\
+				counter & 29.04 & 29.09 & 29.13 & 29.25 & \textbf{29.26} \\
+				garden & 27.70 & 27.50 & 27.72 & 27.87 & \textbf{28.32} \\
+				kitchen & 31.12 & 31.07 & 30.71 & 31.61 & \textbf{31.14} \\
+				room & 31.75 & 31.77 & 31.80 & \textbf{32.03} & 31.94 \\
+				stump & 26.72 & 26.60 & 26.73 & 26.88 & \textbf{27.28} \\
+				Train & 22.47 & 22.31 & 22.54 & 22.46 & \textbf{22.61} \\
+				Truck & 26.13 & 26.05 & 26.11 & 25.86 & \textbf{26.18} \\
+				DrJohnson & 29.93 & 29.55 & 29.81 & 29.47 & \textbf{30.12} \\
+				Playroom & 30.61 & 30.36 & 30.45 & 29.99 & \textbf{30.77} \\
         \hline
-        Average & 28.51 & 28.38 & 28.48 & \textbf{28.79} \\
+        Average & 28.51 & 28.38 & 28.48 & 28.49 & \textbf{28.79} \\
         \hline
 			\end{tabular}
-	}
+  }
 	\caption{Ablation: PSNR [dB] with some of the solution missing. Scenes bicycle, bonsai, counter, garden, kitchen, room and stump
-  are from Mip-nerf 360 \cite{barron2022mip}, Train and Truck are from Tanks and temples \cite{knapitsch2017tanks}, DrJohnson and
-  Playroom are from Deep Blending \cite{HPPFDB18}.}
+  from Mip-nerf 360 \cite{barron2022mip}, Train and Truck from Tanks and temples \cite{knapitsch2017tanks}, DrJohnson and
+  Playroom from Deep Blending \cite{HPPFDB18}.}
 	\label{table:ablation}
 	\end{center}
 \end{table}
@@ -353,6 +384,13 @@ The new calibration alone brings an average improvement of 0.4 dB PSNR on the da
 The fine tuning may be long and its suitability depends on the criticity of training time, but for calibration
 of reference scenes, such as Mip-nerf 360 \cite{barron2022mip}, the stake of novel view quality is the most important.
 \clearpage
+
+\begin{figure}
+	\includegraphics[width=8cm]{kitchen-error.png}
+  \caption{Example of failure. A detailed zone (the tree), seen by few cameras lead to bad reconstruction, which disturbs camera fine-tuning.}
+  \label{img:quali4}
+\end{figure}
+
 \bibliographystyle{plain}
 \bibliography{calibration}
 

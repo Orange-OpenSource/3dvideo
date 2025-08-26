@@ -1,0 +1,117 @@
+% Gemini theme
+% https://github.com/anishathalye/gemini
+
+% ====================
+% Definitions
+% ====================
+
+\definecolor{lightgray}{RGB}{245, 246, 250}
+\definecolor{blue}{RGB}{64, 115, 158}
+\definecolor{darkblue}{RGB}{39, 60, 117}
+\definecolor{lightblue}{RGB}{232, 244, 255}
+
+% ==== DEFINE MY OWN PALETTE ==== %
+% \definecolor{lightblue}{HTML}{a3b4d8}
+% \definecolor{charcoal}{HTML}{264653}
+% \definecolor{persiangreen}{HTML}{2A9D8F}
+% \definecolor{orangeyellow}{HTML}{E9C46A}
+\definecolor{orangeorange}{HTML}{ff6600}
+% \definecolor{sandybrown}{HTML}{F4A261}
+% \definecolor{burntsienna}{HTML}{E76F51}
+% \definecolor{lavenderpurple}{rgb}{0.59, 0.48, 0.71}
+\definecolor{googlegreen}{RGB}{15,157,88}
+\definecolor{googlered}{RGB}{219,68,55}
+
+
+
+\definecolor{darkpastelpurple}{rgb}{0.59, 0.44, 0.84}
+\definecolor{customred}{HTML}{E76F51}
+\definecolor{customblue}{HTML}{376996}
+\definecolor{persiangreen}{HTML}{2A9D8F}
+\definecolor{mygreen}{HTML}{2A9D8F}
+\definecolor{mypurple}{HTML}{822E81}
+\definecolor{mywhite}{HTML}{f0dfbb}
+\definecolor{custompurple}{HTML}{6600CC}
+\definecolor{customyellow}{HTML}{FF9933}
+\definecolor{custompaleblue}{HTML}{829CBC}
+\definecolor{custompalegreen}{HTML}{2CA395}
+
+
+\newcommand{\inorange}[1]{\textcolor{customred}{\textbf{#1}}}
+% ==== DEFINE MY OWN PALETTE ==== %
+
+% Shortcut for notation
+\newcommand{\code}{\mathbf{x}_{t}}               % The frame to code
+\newcommand{\sysoutput}{\hat{\mathbf{x}}_t}      % The decoded frame
+\newcommand{\pastref}{\hat{\mathbf{x}}_{p}}      % The past reference
+\newcommand{\futureref}{\hat{\mathbf{x}}_{f}}    % The future reference
+\newcommand{\pastflow}{\mathbf{v}_{p}}           % Optical flow for the past* reference
+\newcommand{\futureflow}{\mathbf{v}_{f}}         % Optical flow for the future reference
+\newcommand{\pred}{\tilde{\mathbf{x}}_t}         % The temporal prediction
+\newcommand{\bbeta}{\boldsymbol{\beta}}          % Bold beta
+\newcommand{\balph}{\boldsymbol{\alpha}}         % Bold alpha
+
+
+\newcommand{\img}{\mathbf{x}}
+\newcommand{\sysout}{\hat{\img}}
+\newcommand{\latent}{\mathbf{y}}
+\newcommand{\qlatent}{\hat{\latent}}
+\newcommand{\synthparam}{\boldsymbol{\theta}}
+\newcommand{\armparam}{\boldsymbol{\psi}}
+\newcommand{\synthmlp}{f_{\synthparam}}
+\newcommand{\armmlp}{p_{\armparam}}
+\newcommand{\qsteparm}{\Delta_{\armparam}}
+\newcommand{\qstepsynth}{\Delta_{\synthparam}}
+\newcommand{\upparam}{\boldsymbol{\upsilon}}
+\newcommand{\upsample}{f_{\upparam}}
+\newcommand{\analysisparam}{\boldsymbol{\alpha}}
+\newcommand{\analysis}{f_{\analysisparam}}
+
+
+
+% ====================
+% Theme
+% ====================
+
+% Basic colors
+\setbeamercolor{palette primary}{fg=black,bg=white}
+\setbeamercolor{palette secondary}{fg=black,bg=white}
+\setbeamercolor{palette tertiary}{bg=black,fg=white}
+\setbeamercolor{palette quaternary}{fg=black,bg=white}
+\setbeamercolor{structure}{fg=darkblue}
+
+% Headline
+\setbeamercolor{headline}{fg=lightgray,bg=customblue!90}
+\setbeamercolor{headline rule}{bg=customblue!70}
+
+% Block
+\setbeamercolor{block title}{fg=customred,bg=white}
+\setbeamercolor{block separator}{bg=black}
+\setbeamercolor{block body}{fg=black,bg=white}
+
+% Alert Block
+\setbeamercolor{block alerted title}{fg=customred,bg=customblue!20}
+\setbeamercolor{block alerted separator}{bg=black}
+\setbeamercolor{block alerted body}{fg=black,bg=customblue!20}
+
+% Example Block
+\setbeamercolor{block example title}{fg=customred,bg=lightgray}
+\setbeamercolor{block example separator}{bg=black}
+\setbeamercolor{block example body}{fg=black,bg=lightgray}
+
+% Heading
+\setbeamercolor{heading}{fg=black}
+
+% Itemize
+\setbeamercolor{item}{fg=customred}
+
+% Bibliography
+\setbeamercolor{bibliography item}{fg=black}
+\setbeamercolor{bibliography entry author}{fg=black}
+\setbeamercolor{bibliography entry title}{fg=black}
+\setbeamercolor{bibliography entry location}{fg=black}
+\setbeamercolor{bibliography entry note}{fg=black}
+\setbeamertemplate{bibliography entry article}{}
+\setbeamertemplate{bibliography entry title}{}
+\setbeamertemplate{bibliography entry location}{}
+\setbeamertemplate{bibliography entry note}{}
