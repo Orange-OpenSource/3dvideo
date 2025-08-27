@@ -56,22 +56,6 @@
 % Mon adresse électronique\\
 %%%%  Pas de numérotation sur la page de titre
 %\thispagestyle{empty}
-\subsection*{Résumé}
-{\em
-La qualité de la calibration des caméras est d'une importance majeure pour évaluer les progrès dans la synthèse de nouvelles vues,
-une erreur de 1 pixel sur la calibration ayant un impact significatif sur la qualité de reconstruction.
-Etant donné qu'il n'y a pas de vérité terrain pour les scènes réelles, la qualité de la calibration est évaluée par la qualité de
-la synthèse de nouvelles vues.
-Cet article propose d'utiliser la génération de nouvelles vues à partir d'un modèle 3DGS \cite{kerbl20233d} pour affiner la
-calibration par rétropropagation de la loss de couleur.
-L'affinage de la calibration à lui seul apporte une amélioration moyenne de 0,4 dB PSNR sur le jeu de données utilisé comme référence
-par 3DGS \cite{kerbl20233d}.
-Ce processus d'affinage peut être jugé trop long en fonction de la criticité du temps d'entraînement, mais pour la calibration de
-scènes de référence, telles que Mip-nerf 360 \cite{barron2022mip}, l'enjeu de la qualité des nouvelles vues est primordial.
-}
-\subsection*{Mots Clef}
-Synthèse de vue, calibration, apprentissage.
-
 \subsection*{Abstract}
 {\em
 The quality of the camera calibration is of major importance for evaluating progresses in novel view synthesis,
@@ -383,8 +367,8 @@ novel view synthesis, we propose a solution to fine tune this calibration. The c
 The new calibration alone brings an average improvement of 0.4 dB PSNR on the dataset used as reference by 3DGS \cite{kerbl20233d}.
 The fine tuning may be long and its suitability depends on the criticity of training time, but for calibration
 of reference scenes, such as Mip-nerf 360 \cite{barron2022mip}, the stake of novel view quality is the most important.
-\clearpage
 
+\clearpage
 \begin{figure}
 	\includegraphics[width=8cm]{kitchen-error.png}
   \caption{Example of failure. A detailed zone (the tree), seen by few cameras lead to bad reconstruction, which disturbs camera fine-tuning.}
